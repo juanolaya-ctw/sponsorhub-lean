@@ -1,5 +1,5 @@
 import { CreateEstadoForm } from "./create-estado-form";
-import { DeleteEstadoButton } from "./delete-estado-button";
+import { EditEstadoRow } from "./edit-estado-row";
 import { getEventoBySlug } from "@/lib/admin/eventos";
 
 type EstadoRow = {
@@ -52,26 +52,7 @@ export default async function EstadosPage({
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-white">
           {estados.map((estado) => (
-            <li key={estado.id} className="flex items-center gap-4 px-4 py-3">
-              <span
-                className="size-4 shrink-0 rounded-full border border-border"
-                style={{ backgroundColor: estado.color ?? "#e5e5e5" }}
-                aria-hidden
-              />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">{estado.nombre}</p>
-                <p className="text-xs text-muted-foreground">
-                  Orden {estado.orden}
-                  {estado.es_estado_final ? " · Estado final" : ""}
-                  {estado.evento_id ? "" : " · Global"}
-                </p>
-              </div>
-              <DeleteEstadoButton
-                id={estado.id}
-                slug={evento.slug}
-                nombre={estado.nombre}
-              />
-            </li>
+            <EditEstadoRow key={estado.id} estado={estado} slug={evento.slug} />
           ))}
         </ul>
       )}

@@ -17,11 +17,11 @@ import { deleteBeneficio } from "./actions";
 
 export function DeleteBeneficioButton({
   id,
-  slug,
+  eventoSlug,
   nombre,
 }: {
   id: string;
-  slug: string;
+  eventoSlug: string;
   nombre: string;
 }) {
   const [pending, startTransition] = useTransition();
@@ -31,7 +31,7 @@ export function DeleteBeneficioButton({
     <div className="flex flex-col items-end gap-1">
       <AlertDialog>
         <AlertDialogTrigger asChild>
-          <Button variant="destructive" size="sm">
+          <Button type="button" variant="destructive" size="sm">
             Eliminar
           </Button>
         </AlertDialogTrigger>
@@ -50,7 +50,7 @@ export function DeleteBeneficioButton({
               onClick={(event) => {
                 event.preventDefault();
                 startTransition(async () => {
-                  const result = await deleteBeneficio(id, slug);
+                  const result = await deleteBeneficio(id, eventoSlug);
                   setError(result.error);
                 });
               }}

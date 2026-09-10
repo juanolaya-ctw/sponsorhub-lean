@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/require-admin";
 
-export type EstadoActionState = { error: string | null };
+export type EstadoActionState = {
+  error: string | null;
+  success?: boolean;
+};
 
 export async function createEstado(
   _prev: EstadoActionState,
@@ -38,7 +41,7 @@ export async function createEstado(
   }
 
   revalidatePath(`/admin/${slug}/estados`);
-  return { error: null };
+  return { error: null, success: true };
 }
 
 export async function deleteEstado(
@@ -59,4 +62,34 @@ export async function deleteEstado(
 
   revalidatePath(`/admin/${slug}/estados`);
   return { error: null };
+}
+
+export async function updateEstado(
+  id: string,
+  slug: string,
+  _prev: EstadoActionState,
+  formData: FormData,
+): Promise<EstadoActionState> {
+  const { supabase } = await requireAdmin();
+  const nombre = String(formData.get("nombre") ?? "").trim();
+  const color = String(formData.get("color") ?? "").trim() || null;
+  const esEstadoFinal = formData.get("es_estado_final") === "on";
+
+  if (!nombre) {
+    return { error: "El nombre es obligatorio." };
+  }
+
+  const { error } = await supabase
+    .from("estados_compromiso")
+    .update({
+      nombre,
+      color,
+      es_estado_final: esEstadoFinal,
+    })
+    .eq("id", id);
+
+  if (error) return { error: error.message };
+  revalidatePath(`/admin/${slug}/estados`);
+  revalidatePath("/portal/dashboard");
+  return { error: null, success: true };
 }
