@@ -8,6 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
+import { DeleteSponsorButton } from "./delete-sponsor-button";
 
 type SponsorRow = {
   id: string;
@@ -70,7 +71,7 @@ export default async function SponsorsPage({
                 <TableHead>Paquete / tier</TableHead>
                 <TableHead>Contacto</TableHead>
                 <TableHead>Creado</TableHead>
-                <TableHead className="w-[80px]" />
+                <TableHead>Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -81,12 +82,19 @@ export default async function SponsorsPage({
                   <TableCell>{sponsor.contacto_email ?? "—"}</TableCell>
                   <TableCell>{formatDateTime(sponsor.created_at)}</TableCell>
                   <TableCell>
-                    <Link
-                      href={`/admin/${slug}/sponsors/${sponsor.id}`}
-                      className="text-sm text-secondary hover:underline"
-                    >
-                      Ver
-                    </Link>
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href={`/admin/${slug}/sponsors/${sponsor.id}`}
+                        className="text-sm text-secondary hover:underline"
+                      >
+                        Ver
+                      </Link>
+                      <DeleteSponsorButton
+                        sponsorId={sponsor.id}
+                        sponsorNombre={sponsor.nombre}
+                        eventoSlug={slug}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

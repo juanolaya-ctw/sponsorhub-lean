@@ -16,6 +16,8 @@ import {
   type CompromisoRow,
   type EstadoOption,
 } from "../../compromisos/commitments-table";
+import { DeleteSponsorButton } from "../delete-sponsor-button";
+import { TierSelect } from "../tier-select";
 
 const BUCKET = "sponsorhub-archivos";
 const SIGNED_URL_TTL = 60 * 60; // 1 hora
@@ -81,7 +83,8 @@ export default async function SponsorDetallePage({
   if (!sponsorData) notFound();
   const sponsor = sponsorData as SponsorDetalle;
 
-  const [archivosResult, compromisosResult, estadosResult] = await Promise.all([
+  const [archivosResult, compromisosResult, estadosResult, tiersResult] =
+    await Promise.all([
     supabase
       .from("archivos")
       .select("id, tipo, nombre_archivo, storage_path, created_at")
@@ -100,16 +103,25 @@ export default async function SponsorDetallePage({
       .select("id, nombre, color")
       .or(`evento_id.eq.${evento.id},evento_id.is.null`)
       .order("orden"),
-  ]);
+    supabase
+      .from("catalogo_beneficios")
+      .select("tier")
+      .eq("evento_id", evento.id)
+      .order("tier"),
+    ]);
 
   if (archivosResult.error) throw new Error(archivosResult.error.message);
   if (compromisosResult.error) throw new Error(compromisosResult.error.message);
   if (estadosResult.error) throw new Error(estadosResult.error.message);
+  if (tiersResult.error) throw new Error(tiersResult.error.message);
 
   const archivosData = archivosResult.data;
   const archivos = (archivosData ?? []) as ArchivoSponsor[];
   const compromisos = (compromisosResult.data ?? []) as unknown as CompromisoRow[];
   const estados = (estadosResult.data ?? []) as EstadoOption[];
+  const tiers = Array.from(
+    new Set((tiersResult.data ?? []).map((item) => item.tier)),
+  );
 
   // Las URLs firmadas se generan con el cliente de service_role porque las
   // policies de Storage solo dan acceso al propio sponsor. Esta página está
@@ -159,23 +171,38 @@ export default async function SponsorDetallePage({
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-xl font-semibold">{sponsor.nombre}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {evento.nombre}
-          {sponsor.paquete ? ` · ${sponsor.paquete}` : ""}
-        </p>
-        {sponsor.contacto_nombre || sponsor.contacto_email || sponsor.contacto_telefono ? (
-          <p className="mt-1 text-sm text-muted-foreground">
-            {[
-              sponsor.contacto_nombre,
-              sponsor.contacto_email,
-              sponsor.contacto_telefono,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        ) : null}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold">{sponsor.nombre}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{evento.nombre}</p>
+          {sponsor.contacto_nombre ||
+          sponsor.contacto_email ||
+          sponsor.contacto_telefono ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {[
+                sponsor.contacto_nombre,
+                sponsor.contacto_email,
+                sponsor.contacto_telefono,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-start gap-4">
+          <TierSelect
+            sponsorId={sponsor.id}
+            eventoSlug={evento.slug}
+            currentTier={sponsor.paquete}
+            tiers={tiers}
+          />
+          <DeleteSponsorButton
+            sponsorId={sponsor.id}
+            sponsorNombre={sponsor.nombre}
+            eventoSlug={evento.slug}
+            redirectAfterDelete
+          />
+        </div>
       </div>
 
       <section>
