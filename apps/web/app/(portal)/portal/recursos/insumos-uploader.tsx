@@ -1,9 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { createClient } from "@/lib/supabase/client";
 import type { InsumoRequerido } from "@/lib/portal/insumos";
 
@@ -39,7 +42,7 @@ export function InsumosUploader({
           sponsorId={sponsorId}
           userId={userId}
           subido={subidosSet.has(insumo.key)}
-          onUploaded={() => router.refresh()}
+          onSaved={() => router.refresh()}
         />
       ))}
     </ul>
@@ -51,17 +54,30 @@ function InsumoRow({
   sponsorId,
   userId,
   subido,
-  onUploaded,
+  onSaved,
 }: {
   insumo: InsumoRequerido;
   sponsorId: string;
   userId: string;
   subido: boolean;
-  onUploaded: () => void;
+  onSaved: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openForm, setOpenForm] = useState(false);
+
+  async function insertRow(nombreArchivo: string, storagePath: string) {
+    const supabase = createClient();
+    return supabase.from("archivos").insert({
+      sponsor_id: sponsorId,
+      direccion: "sponsor_sube",
+      tipo: insumo.key,
+      nombre_archivo: nombreArchivo,
+      storage_path: storagePath,
+      subido_por: userId,
+    });
+  }
 
   async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -83,15 +99,7 @@ function InsumoRow({
       return;
     }
 
-    const { error: rowError } = await supabase.from("archivos").insert({
-      sponsor_id: sponsorId,
-      direccion: "sponsor_sube",
-      tipo: insumo.key,
-      nombre_archivo: file.name,
-      storage_path: path,
-      subido_por: userId,
-    });
-
+    const { error: rowError } = await insertRow(file.name, path);
     if (rowError) {
       await supabase.storage.from(BUCKET).remove([path]);
       setError(rowError.message);
@@ -100,44 +108,180 @@ function InsumoRow({
     }
 
     setPending(false);
-    onUploaded();
+    onSaved();
   }
 
+  async function handleTextoLink(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const texto = String(form.get("texto") ?? "").trim();
+    const link = String(form.get("link") ?? "").trim();
+
+    if (!texto) {
+      setError("Escribe el texto del insumo.");
+      return;
+    }
+
+    setPending(true);
+    setError(null);
+    const { error: rowError } = await insertRow(texto, link || "(sin enlace)");
+    if (rowError) {
+      setError(rowError.message);
+      setPending(false);
+      return;
+    }
+    setPending(false);
+    setOpenForm(false);
+    onSaved();
+  }
+
+  async function handleTexto(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const nombre = String(form.get("nombre") ?? "").trim();
+    const email = String(form.get("email") ?? "").trim();
+    const telefono = String(form.get("telefono") ?? "").trim();
+
+    if (!nombre || !email) {
+      setError("Nombre y email son obligatorios.");
+      return;
+    }
+
+    setPending(true);
+    setError(null);
+    const resumen = `${nombre} · ${email}${telefono ? ` · ${telefono}` : ""}`;
+    const { error: rowError } = await insertRow(resumen, "texto");
+    if (rowError) {
+      setError(rowError.message);
+      setPending(false);
+      return;
+    }
+    setPending(false);
+    setOpenForm(false);
+    onSaved();
+  }
+
+  const estado = subido ? (
+    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[#16a34a]">
+      <CheckCircle2 className="size-4" />
+      Subido
+    </span>
+  ) : (
+    <span className="text-sm text-muted-foreground">Pendiente</span>
+  );
+
   return (
-    <li className="flex items-start gap-4 py-4">
-      <div className="min-w-0 flex-1">
-        <p className="font-medium">{insumo.nombre}</p>
-        <p className="mt-0.5 text-sm text-muted-foreground">{insumo.descripcion}</p>
-        {error ? (
-          <p className="mt-1 text-sm text-destructive">{error}</p>
-        ) : null}
+    <li className="py-4">
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">{insumo.nombre}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">{insumo.descripcion}</p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-3">
+          {estado}
+
+          {insumo.tipo === "archivo" ? (
+            <>
+              <input
+                ref={inputRef}
+                type="file"
+                className="hidden"
+                onChange={(event) => void handleFile(event)}
+              />
+              <Button
+                type="button"
+                variant={subido ? "outline" : "default"}
+                size="sm"
+                disabled={pending}
+                onClick={() => inputRef.current?.click()}
+              >
+                {pending ? "Subiendo…" : subido ? "Reemplazar" : "Subir"}
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant={subido ? "outline" : "default"}
+              size="sm"
+              disabled={pending}
+              onClick={() => {
+                setError(null);
+                setOpenForm((value) => !value);
+              }}
+            >
+              {openForm ? "Cancelar" : subido ? "Editar" : "Completar"}
+            </Button>
+          )}
+        </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3">
-        {subido ? (
-          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[#16a34a]">
-            <CheckCircle2 className="size-4" />
-            Subido
-          </span>
-        ) : (
-          <span className="text-sm text-muted-foreground">Pendiente</span>
-        )}
-        <input
-          ref={inputRef}
-          type="file"
-          className="hidden"
-          onChange={(event) => void handleFile(event)}
-        />
-        <Button
-          type="button"
-          variant={subido ? "outline" : "default"}
-          size="sm"
-          disabled={pending}
-          onClick={() => inputRef.current?.click()}
+      {openForm && insumo.tipo === "texto+link" ? (
+        <form
+          onSubmit={(event) => void handleTextoLink(event)}
+          className="mt-3 grid gap-3 rounded-lg border border-border bg-muted/30 p-4"
         >
-          {pending ? "Subiendo…" : subido ? "Reemplazar" : "Subir"}
-        </Button>
-      </div>
+          <div>
+            <Label htmlFor={`${insumo.key}-texto`}>Texto</Label>
+            <Textarea
+              id={`${insumo.key}-texto`}
+              name="texto"
+              required
+              rows={3}
+              className="mt-1"
+              placeholder="Contenido que quieres que publiquemos…"
+            />
+          </div>
+          <div>
+            <Label htmlFor={`${insumo.key}-link`}>Enlace de referencia</Label>
+            <Input
+              id={`${insumo.key}-link`}
+              name="link"
+              type="url"
+              className="mt-1"
+              placeholder="https://…"
+            />
+          </div>
+          <div>
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending ? "Guardando…" : "Guardar"}
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
+      {openForm && insumo.tipo === "texto" ? (
+        <form
+          onSubmit={(event) => void handleTexto(event)}
+          className="mt-3 grid gap-3 rounded-lg border border-border bg-muted/30 p-4 sm:grid-cols-3"
+        >
+          <div>
+            <Label htmlFor={`${insumo.key}-nombre`}>Nombre</Label>
+            <Input id={`${insumo.key}-nombre`} name="nombre" required className="mt-1" />
+          </div>
+          <div>
+            <Label htmlFor={`${insumo.key}-email`}>Email</Label>
+            <Input
+              id={`${insumo.key}-email`}
+              name="email"
+              type="email"
+              required
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label htmlFor={`${insumo.key}-telefono`}>Teléfono</Label>
+            <Input id={`${insumo.key}-telefono`} name="telefono" className="mt-1" />
+          </div>
+          <div className="sm:col-span-3">
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending ? "Guardando…" : "Guardar"}
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
+      {error ? <p className="mt-2 text-sm text-destructive">{error}</p> : null}
     </li>
   );
 }

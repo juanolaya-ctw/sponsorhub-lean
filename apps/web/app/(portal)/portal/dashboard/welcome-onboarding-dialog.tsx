@@ -34,8 +34,8 @@ export function WelcomeOnboardingDialog({
       <DialogContent className="sm:max-w-lg" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle className="text-lg leading-snug">
-            Bienvenido a SponsorHub — antes de comenzar, necesitamos que subas
-            estos recursos
+            Te damos la bienvenida a SponsorHub. Antes de comenzar, necesitamos
+            que subas estos recursos.
           </DialogTitle>
           <DialogDescription>
             Con estos insumos el equipo de ColombiaTech puede activar tu

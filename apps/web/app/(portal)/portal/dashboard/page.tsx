@@ -11,6 +11,7 @@ type TimelineItem = {
   beneficio: string | null;
   estado_nombre: string | null;
   estado_color: string | null;
+  es_estado_final: boolean | null;
   fecha_limite: string | null;
 };
 
@@ -82,7 +83,7 @@ export default async function SponsorDashboardPage() {
     supabase
       .from("v_timeline_sponsor")
       .select(
-        "compromiso_id, categoria, beneficio, estado_nombre, estado_color, fecha_limite",
+        "compromiso_id, categoria, beneficio, estado_nombre, estado_color, es_estado_final, fecha_limite",
       )
       .eq("sponsor_id", sponsor.sponsorId),
     supabase
@@ -97,6 +98,18 @@ export default async function SponsorDashboardPage() {
 
   const timeline = (timelineResult.data ?? []) as TimelineItem[];
   const tieneArchivos = (archivosResult.data ?? []).length > 0;
+
+  // Progreso general: compromisos en estado final sobre el total de
+  // compromisos. Sin compromisos → 0%. Se recalcula en cada carga (el
+  // sync es periódico, no en vivo).
+  const totalCompromisos = timeline.length;
+  const compromisosCompletados = timeline.filter(
+    (item) => item.es_estado_final === true,
+  ).length;
+  const progresoPct =
+    totalCompromisos > 0
+      ? Math.round((compromisosCompletados / totalCompromisos) * 100)
+      : 0;
 
   // Fallback: si aún no hay compromisos generados, mostramos los beneficios
   // del tier del sponsor directamente desde el catálogo.
@@ -146,10 +159,31 @@ export default async function SponsorDashboardPage() {
             Este es el estado de tus beneficios del evento.
           </p>
         </div>
-        <Button asChild variant="outline">
+        <Button
+          asChild
+          className="bg-[#040402] text-white hover:bg-[#040402]/90"
+        >
           <Link href="/portal/recursos">Gestionar recursos</Link>
         </Button>
       </div>
+
+      <section>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-xl font-semibold">Progreso general</h2>
+          <span className="text-sm font-semibold text-muted-foreground">
+            {progresoPct}%
+          </span>
+        </div>
+        <div className="mt-3 h-3 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-[#42B3F3] transition-all"
+            style={{ width: `${progresoPct}%` }}
+          />
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {compromisosCompletados} de {totalCompromisos} beneficios completados
+        </p>
+      </section>
 
       <section>
         <h2 className="text-xl font-semibold">Tus beneficios</h2>
