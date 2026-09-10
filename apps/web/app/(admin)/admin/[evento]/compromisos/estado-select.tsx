@@ -6,6 +6,7 @@ import { updateCompromisoEstado } from "./actions";
 type EstadoOption = {
   id: string;
   nombre: string;
+  color?: string | null;
 };
 
 export function EstadoSelect({
@@ -22,41 +23,48 @@ export function EstadoSelect({
   const [value, setValue] = useState(estadoId ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const selected = estados.find((estado) => estado.id === value);
 
   return (
     <div>
-      <select
-        value={value}
-        disabled={pending}
-        aria-label="Cambiar estado"
-        className="h-8 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
-        onChange={(event) => {
-          const previous = value;
-          const next = event.target.value;
-          setValue(next);
-          setError(null);
-          startTransition(async () => {
-            const result = await updateCompromisoEstado(
-              compromisoId,
-              next,
-              eventoSlug,
-            );
-            if (result.error) {
-              setValue(previous);
-              setError(result.error);
-            }
-          });
-        }}
-      >
-        <option value="" disabled>
-          Sin estado
-        </option>
-        {estados.map((estado) => (
-          <option key={estado.id} value={estado.id}>
-            {estado.nombre}
+      <div className="flex items-center gap-2">
+        <span
+          className="size-2.5 shrink-0 rounded-full bg-muted"
+          style={{ backgroundColor: selected?.color ?? undefined }}
+        />
+        <select
+          value={value}
+          disabled={pending}
+          aria-label="Cambiar estado"
+          className="h-8 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
+          onChange={(event) => {
+            const previous = value;
+            const next = event.target.value;
+            setValue(next);
+            setError(null);
+            startTransition(async () => {
+              const result = await updateCompromisoEstado(
+                compromisoId,
+                next,
+                eventoSlug,
+              );
+              if (result.error) {
+                setValue(previous);
+                setError(result.error);
+              }
+            });
+          }}
+        >
+          <option value="" disabled>
+            Sin estado
           </option>
-        ))}
-      </select>
+          {estados.map((estado) => (
+            <option key={estado.id} value={estado.id}>
+              {estado.nombre}
+            </option>
+          ))}
+        </select>
+      </div>
       {error ? <p className="mt-1 max-w-56 text-xs text-destructive">{error}</p> : null}
     </div>
   );

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 const LINKS = [
   { href: "sponsors", label: "Sponsors" },
-  { href: "compromisos", label: "Compromisos" },
+  { href: "compromisos", label: "Configuración de compromisos" },
   { href: "catalogo", label: "Catálogo" },
   { href: "estados", label: "Estados" },
   { href: "alertas", label: "Alertas" },

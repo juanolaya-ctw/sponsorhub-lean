@@ -1,0 +1,126 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { requireAdmin } from "@/lib/auth/require-admin";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+const BUCKET = "sponsorhub-archivos";
+
+function safeFilename(name: string) {
+  return name
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-");
+}
+
+function isStoredObject(path: string) {
+  return !/^(?:texto|https?:)/i.test(path);
+}
+
+export async function prepareReplacementUpload(
+  archivoId: string,
+  sponsorId: string,
+  filename: string,
+) {
+  const { supabase } = await requireAdmin();
+  const { data: archivo, error: archivoError } = await supabase
+    .from("archivos")
+    .select("id, sponsor_id")
+    .eq("id", archivoId)
+    .eq("sponsor_id", sponsorId)
+    .maybeSingle();
+
+  if (archivoError || !archivo) {
+    return { data: null, error: archivoError?.message ?? "Archivo no encontrado." };
+  }
+
+  const path = `${sponsorId}/${crypto.randomUUID()}-${safeFilename(filename)}`;
+  const admin = createAdminClient();
+  const { data, error } = await admin.storage
+    .from(BUCKET)
+    .createSignedUploadUrl(path);
+
+  if (error) return { data: null, error: error.message };
+  return { data: { path: data.path, token: data.token }, error: null };
+}
+
+export async function finalizeReplacement(
+  archivoId: string,
+  sponsorId: string,
+  eventoSlug: string,
+  replacementPath: string,
+  replacementName: string,
+) {
+  const { supabase } = await requireAdmin();
+  const { data: archivo, error: archivoError } = await supabase
+    .from("archivos")
+    .select("storage_path")
+    .eq("id", archivoId)
+    .eq("sponsor_id", sponsorId)
+    .maybeSingle();
+
+  if (archivoError || !archivo) {
+    return { error: archivoError?.message ?? "Archivo no encontrado." };
+  }
+  if (!replacementPath.startsWith(`${sponsorId}/`)) {
+    return { error: "La ruta del reemplazo no corresponde al sponsor." };
+  }
+
+  const { error: updateError } = await supabase
+    .from("archivos")
+    .update({
+      nombre_archivo: replacementName,
+      storage_path: replacementPath,
+      sync_estado: "local",
+    })
+    .eq("id", archivoId)
+    .eq("sponsor_id", sponsorId);
+
+  const admin = createAdminClient();
+  if (updateError) {
+    await admin.storage.from(BUCKET).remove([replacementPath]);
+    return { error: updateError.message };
+  }
+
+  if (isStoredObject(archivo.storage_path)) {
+    await admin.storage.from(BUCKET).remove([archivo.storage_path]);
+  }
+
+  revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
+  return { error: null };
+}
+
+export async function deleteArchivo(
+  archivoId: string,
+  sponsorId: string,
+  eventoSlug: string,
+) {
+  const { supabase } = await requireAdmin();
+  // Esta lectura pasa por RLS antes de usar service_role para el DELETE,
+  // cuya policy aún no existe en sponsorhub.archivos.
+  const { data: archivo, error: archivoError } = await supabase
+    .from("archivos")
+    .select("storage_path")
+    .eq("id", archivoId)
+    .eq("sponsor_id", sponsorId)
+    .maybeSingle();
+
+  if (archivoError || !archivo) {
+    return { error: archivoError?.message ?? "Archivo no encontrado." };
+  }
+
+  const admin = createAdminClient();
+  const { error: deleteError } = await admin
+    .from("archivos")
+    .delete()
+    .eq("id", archivoId)
+    .eq("sponsor_id", sponsorId);
+  if (deleteError) return { error: deleteError.message };
+
+  if (isStoredObject(archivo.storage_path)) {
+    await admin.storage.from(BUCKET).remove([archivo.storage_path]);
+  }
+
+  revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
+  return { error: null };
+}
