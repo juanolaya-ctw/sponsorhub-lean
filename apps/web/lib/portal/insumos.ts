@@ -18,15 +18,9 @@ export const INSUMOS_REQUERIDOS: InsumoRequerido[] = [
   },
   {
     key: "manual_marca",
-    nombre: "Manual de marca y guía de uso",
+    nombre: "Manual de marca, guía de uso y don'ts de aplicación",
     descripcion:
-      "Documento con colores, tipografías y usos correctos del logo.",
-  },
-  {
-    key: "donts_marca",
-    nombre: "Don'ts de aplicación de marca",
-    descripcion:
-      "Ejemplos de usos incorrectos del logo que debemos evitar en las piezas.",
+      "Documento con colores, tipografías, usos correctos del logo y ejemplos de usos incorrectos que debemos evitar.",
   },
   {
     key: "info_newsletter",

@@ -57,65 +57,81 @@ export default function LoginPage() {
     router.refresh();
   }
 
+  const fieldClass =
+    "w-full rounded-[21px] border-0 bg-white px-6 py-4 text-base font-semibold text-[#040402] outline-none placeholder:font-semibold placeholder:text-[#868686] focus-visible:ring-2 focus-visible:ring-[#040402]/20";
+
   return (
-    <main className="rounded-2xl border border-border bg-card p-8 shadow-md">
-      <BrandLogo className="h-8" />
-      <h1 className="mt-4 text-2xl font-semibold text-foreground">SponsorHub</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Inicia sesión con el correo que te asignó el equipo de CT.
-      </p>
+    <main className="min-h-screen w-full bg-[#e9ebdf]">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col md:grid md:grid-cols-2">
+        {/* Columna izquierda: formulario, directamente sobre el fondo */}
+        <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-10 md:px-12 lg:px-16">
+          <div className="mx-auto w-full max-w-md">
+            <BrandLogo className="h-8 w-auto" />
 
-      <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
-        <div>
-          <label htmlFor="email" className="block text-sm font-medium text-foreground">
-            Email
-          </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            placeholder="tu@empresa.com"
-          />
+            <h1 className="mt-10 font-bold leading-[1.1] text-[32px] text-[#040402] sm:text-[40px] md:text-[51px]">
+              Gestiona el status
+              <br />
+              de tu participación.
+            </h1>
+
+            <form className="mt-10 space-y-4" onSubmit={handleSubmit}>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className={fieldClass}
+                placeholder="Correo electrónico"
+                aria-label="Correo electrónico"
+              />
+
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className={fieldClass}
+                placeholder="Contraseña"
+                aria-label="Contraseña"
+              />
+
+              {error ? (
+                <p
+                  role="alert"
+                  className="rounded-[21px] bg-destructive/10 px-6 py-4 text-sm font-semibold text-destructive"
+                >
+                  {error}
+                </p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-[21px] bg-[#040402] px-6 py-4 text-base font-semibold text-white transition hover:bg-[#040402]/90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Ingresando…" : "Iniciar sesión"}
+              </button>
+            </form>
+          </div>
         </div>
 
-        <div>
-          <label htmlFor="password" className="block text-sm font-medium text-foreground">
-            Contraseña
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        {/* Columna derecha: ilustración, centrada y sin distorsión */}
+        <div className="hidden self-stretch md:flex md:items-center md:justify-center md:p-12">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/illustration-login.png"
+            alt=""
+            aria-hidden
+            className="h-auto max-h-[80%] w-auto max-w-[85%] object-contain"
           />
         </div>
-
-        {error ? (
-          <p
-            role="alert"
-            className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          >
-            {error}
-          </p>
-        ) : null}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/80 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {loading ? "Ingresando…" : "Iniciar sesión"}
-        </button>
-      </form>
+      </div>
     </main>
   );
 }

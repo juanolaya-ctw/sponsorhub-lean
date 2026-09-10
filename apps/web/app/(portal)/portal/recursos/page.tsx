@@ -67,7 +67,7 @@ export default async function RecursosPage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold">Descargar de CT</h2>
+        <h2 className="text-xl font-semibold">Entregables de ColombiaTech</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Entregables que el equipo de ColombiaTech preparó para ti.
         </p>
