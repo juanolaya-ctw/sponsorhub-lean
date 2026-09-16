@@ -2,15 +2,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const ARCHIVOS_BUCKET = "sponsorhub-archivos";
 
-export const TIPO_LOGO = "logo";
+export const TIPO_LOGO = "logo_ai";
+export const TIPO_LOGO_LEGACY = "logo";
 export const TIPO_NEWSLETTER = "newsletter";
 export const TIPO_SPEAKER_FORM = "speaker_form_completado";
+export const TIPO_DECK_ADDONS = "Deck Add-ons";
+
+export const ENTREGABLE_TIPOS = [
+  "Deck Add-ons",
+  "Toolkit",
+  "Manual de marca",
+  "Otro",
+] as const;
+
+export type EntregableTipo = (typeof ENTREGABLE_TIPOS)[number];
 
 export type TipoFormulario =
   | "branding"
   | "accesos"
   | "newsletter"
   | "speaker"
+  | "addon"
   | "informativo";
 
 export type NewsletterPayload = {
@@ -67,6 +79,8 @@ export type BeneficioPortal = {
   progreso: ProgresoBeneficio;
   archivos: ArchivoPortal[];
   personas: AccesoPersona[];
+  logoCargado: boolean;
+  logoCompartido: ArchivoPortal | null;
 };
 
 type CatalogoJoin = {
@@ -124,11 +138,20 @@ export function tipoFormulario(categoria: string): TipoFormulario {
   ) {
     return "speaker";
   }
+  if (value.includes("descuento") || value.includes("add-on")) return "addon";
   return "informativo";
 }
 
 export function esInformativo(categoria: string): boolean {
   return tipoFormulario(categoria) === "informativo";
+}
+
+export function requiereAccion(tipo: TipoFormulario): boolean {
+  return tipo !== "informativo" && tipo !== "addon";
+}
+
+export function isLogoTipo(tipo: string) {
+  return tipo === TIPO_LOGO || tipo === TIPO_LOGO_LEGACY;
 }
 
 export function tipoAccesoFromCategoria(
@@ -195,13 +218,16 @@ export function progresoBeneficio(
   archivos: ArchivoPortal[],
   personas: AccesoPersona[],
 ): ProgresoBeneficio {
-  if (tipo === "informativo") {
+  if (tipo === "informativo" || tipo === "addon") {
     return {
       current: 0,
       total: 0,
       pct: 0,
       completed: false,
-      label: "No requiere acción",
+      label:
+        tipo === "addon"
+          ? "ColombiaTech comparte el deck aquí"
+          : "No requiere acción",
       multiple: false,
     };
   }
@@ -234,7 +260,10 @@ export function progresoBeneficio(
   }
 
   if (tipo === "branding") {
-    const completed = archivos.some((item) => isStoredObject(item.storage_path));
+    const completed = archivos.some(
+      (item) =>
+        isLogoTipo(item.tipo) && isStoredObject(item.storage_path),
+    );
     return {
       current: completed ? 1 : 0,
       total: 1,
@@ -297,11 +326,52 @@ function mapCompromiso(
     progreso: progresoBeneficio(tipo, catalogo?.cantidad ?? null, archivosDel, personasDel),
     archivos: archivosDel,
     personas: personasDel,
+    logoCargado: false,
+    logoCompartido: null,
   };
 }
 
+function attachLogosCompartidos(
+  beneficios: BeneficioPortal[],
+  archivos: ArchivoPortal[],
+): BeneficioPortal[] {
+  const logos = archivos.filter(
+    (item) => isLogoTipo(item.tipo) && isStoredObject(item.storage_path),
+  );
+  const completedPaths = new Set(
+    beneficios
+      .filter((item) => item.tipo === "branding" && item.progreso.completed)
+      .flatMap((item) =>
+        item.archivos
+          .filter((archivo) => isLogoTipo(archivo.tipo) && isStoredObject(archivo.storage_path))
+          .map((archivo) => archivo.storage_path),
+      ),
+  );
+
+  return beneficios.map((item) => {
+    if (item.tipo !== "branding") return item;
+
+    const shared =
+      logos.find((logo) => logo.compromiso_id !== item.compromisoId) ?? null;
+    const ownPaths = item.archivos
+      .filter((archivo) => isLogoTipo(archivo.tipo) && isStoredObject(archivo.storage_path))
+      .map((archivo) => archivo.storage_path);
+    const sharesCompletedPath = ownPaths.some((path) => completedPaths.has(path));
+    const logoCargado =
+      item.progreso.completed ||
+      sharesCompletedPath ||
+      shared !== null;
+
+    return {
+      ...item,
+      logoCargado,
+      logoCompartido: item.progreso.completed ? null : shared,
+    };
+  });
+}
+
 export function resumenProgreso(beneficios: BeneficioPortal[]) {
-  const accionables = beneficios.filter((item) => item.tipo !== "informativo");
+  const accionables = beneficios.filter((item) => requiereAccion(item.tipo));
   const completados = accionables.filter((item) => item.progreso.completed).length;
   const total = accionables.length;
   return {
@@ -343,8 +413,11 @@ export async function loadPortalBeneficios(
 
   const archivos = (archivosResult.data ?? []) as ArchivoPortal[];
   const personas = (personasResult.data ?? []) as AccesoPersona[];
-  const mapped = ((compromisosResult.data ?? []) as CompromisoRow[]).map((row) =>
-    mapCompromiso(row, archivos, personas),
+  const mapped = attachLogosCompartidos(
+    ((compromisosResult.data ?? []) as CompromisoRow[]).map((row) =>
+      mapCompromiso(row, archivos, personas),
+    ),
+    archivos,
   );
 
   return mapped.sort((a, b) => a.categoria.localeCompare(b.categoria, "es"));

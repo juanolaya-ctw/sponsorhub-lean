@@ -5,9 +5,11 @@ import { getSponsorContext } from "@/lib/portal/sponsor";
 import {
   iconoCategoria,
   loadPortalBeneficios,
+  requiereAccion,
 } from "@/lib/portal/beneficios";
 import { DownloadButton } from "../dashboard/download-button";
 import { Button } from "@/components/ui/button";
+import { CargadoBadge } from "./cargado-badge";
 
 type ArchivoCT = {
   id: string;
@@ -101,16 +103,21 @@ export default async function RecursosPage() {
                   </span>
                   {item.categoria}
                 </p>
-                <EstadoBadge
-                  nombre={item.estadoNombre}
-                  color={item.estadoColor}
-                />
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <EstadoBadge
+                    nombre={item.estadoNombre}
+                    color={item.estadoColor}
+                  />
+                  {item.tipo === "branding" && item.logoCargado ? (
+                    <CargadoBadge />
+                  ) : null}
+                </div>
               </div>
               <h2 className="mt-3 text-lg font-semibold leading-snug">
                 {item.beneficio}
               </h2>
 
-              {item.tipo !== "informativo" ? (
+              {requiereAccion(item.tipo) ? (
                 <div className="mt-4">
                   <div className="h-2 overflow-hidden rounded-full bg-muted">
                     <div
@@ -131,7 +138,7 @@ export default async function RecursosPage() {
               <div className="mt-auto pt-5">
                 <Button asChild className="w-full">
                   <Link href={`/portal/recursos/${item.compromisoId}`}>
-                    {item.progreso.completed || item.tipo === "informativo"
+                    {item.progreso.completed || !requiereAccion(item.tipo)
                       ? "Ver detalle"
                       : "Completar"}
                   </Link>

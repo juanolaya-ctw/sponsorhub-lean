@@ -11,6 +11,7 @@ import { getEventoBySlug } from "@/lib/admin/eventos";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { INSUMOS_REQUERIDOS } from "@/lib/portal/insumos";
 import { ArchivoActions } from "./archivo-actions";
+import { EntregablesCtSection } from "./entregables-ct";
 import {
   CommitmentsTable,
   type CompromisoRow,
@@ -100,13 +101,19 @@ export default async function SponsorDetallePage({
   if (!sponsorData) notFound();
   const sponsor = sponsorData as SponsorDetalle;
 
-  const [archivosResult, compromisosResult, estadosResult, tiersResult, accesosResult] =
+  const [archivosResult, entregasResult, compromisosResult, estadosResult, tiersResult, accesosResult] =
     await Promise.all([
     supabase
       .from("archivos")
       .select("id, tipo, nombre_archivo, storage_path, created_at")
       .eq("sponsor_id", sponsor.id)
       .eq("direccion", "sponsor_sube")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("archivos")
+      .select("id, tipo, nombre_archivo, storage_path, created_at")
+      .eq("sponsor_id", sponsor.id)
+      .eq("direccion", "ctw_entrega")
       .order("created_at", { ascending: false }),
     supabase
       .from("compromisos")
@@ -135,6 +142,7 @@ export default async function SponsorDetallePage({
     ]);
 
   if (archivosResult.error) throw new Error(archivosResult.error.message);
+  if (entregasResult.error) throw new Error(entregasResult.error.message);
   if (compromisosResult.error) throw new Error(compromisosResult.error.message);
   if (estadosResult.error) throw new Error(estadosResult.error.message);
   if (tiersResult.error) throw new Error(tiersResult.error.message);
@@ -142,6 +150,7 @@ export default async function SponsorDetallePage({
 
   const archivosData = archivosResult.data;
   const archivos = (archivosData ?? []) as ArchivoSponsor[];
+  const entregas = (entregasResult.data ?? []) as ArchivoSponsor[];
   const compromisos = (compromisosResult.data ?? []) as unknown as CompromisoRow[];
   const estados = (estadosResult.data ?? []) as EstadoOption[];
   const accesos = (accesosResult.data ?? []) as AccesoPersonaAdmin[];
@@ -186,6 +195,29 @@ export default async function SponsorDetallePage({
     }),
   );
   const tiposSubidos = new Set(archivos.map((archivo) => archivo.tipo));
+  const entregasConUrl = await Promise.all(
+    entregas.map(async (archivo) => {
+      const [viewResult, downloadResult] = await Promise.all([
+        admin.storage
+          .from(BUCKET)
+          .createSignedUrl(archivo.storage_path, SIGNED_URL_TTL),
+        admin.storage
+          .from(BUCKET)
+          .createSignedUrl(archivo.storage_path, SIGNED_URL_TTL, {
+            download: archivo.nombre_archivo,
+          }),
+      ]);
+      return {
+        id: archivo.id,
+        tipo: archivo.tipo,
+        nombre: archivo.nombre_archivo,
+        storagePath: archivo.storage_path,
+        createdAt: archivo.created_at,
+        viewUrl: viewResult.data?.signedUrl ?? null,
+        downloadUrl: downloadResult.data?.signedUrl ?? null,
+      };
+    }),
+  );
   const insumosFaltantes = INSUMOS_REQUERIDOS.filter(
     (insumo) => !tiposSubidos.has(insumo.key),
   );
@@ -315,6 +347,12 @@ export default async function SponsorDetallePage({
           </div>
         )}
       </section>
+
+      <EntregablesCtSection
+        sponsorId={sponsor.id}
+        eventoSlug={evento.slug}
+        archivos={entregasConUrl}
+      />
 
       <section>
         <h2 className="text-lg font-semibold">Accesos</h2>

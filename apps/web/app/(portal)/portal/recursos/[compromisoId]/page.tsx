@@ -7,16 +7,20 @@ import {
   ARCHIVOS_BUCKET,
   iconoCategoria,
   isImageName,
+  isLogoTipo,
   isStoredObject,
   loadPortalBeneficio,
   parseNewsletter,
+  TIPO_DECK_ADDONS,
   TIPO_NEWSLETTER,
   TIPO_SPEAKER_FORM,
 } from "@/lib/portal/beneficios";
 import { AccesosForm } from "./accesos-form";
+import { AddonDeck } from "./addon-deck";
 import { BrandingForm } from "./branding-form";
 import { NewsletterForm } from "./newsletter-form";
 import { SpeakerForm } from "./speaker-form";
+import { CargadoBadge } from "../cargado-badge";
 
 export default async function BeneficioDetallePage({
   params,
@@ -49,7 +53,62 @@ export default async function BeneficioDetallePage({
   );
 
   const logoArchivo =
-    archivosConUrl.find((item) => isStoredObject(item.storage_path)) ?? null;
+    archivosConUrl.find(
+      (item) => isLogoTipo(item.tipo) && isStoredObject(item.storage_path),
+    ) ?? null;
+
+  let logoCompartido: {
+    id: string;
+    nombre: string;
+    storagePath: string;
+    viewUrl: string | null;
+    isImage: boolean;
+  } | null = null;
+
+  if (beneficio.tipo === "branding" && !logoArchivo && beneficio.logoCompartido) {
+    const shared = beneficio.logoCompartido;
+    const { data } = await supabase.storage
+      .from(ARCHIVOS_BUCKET)
+      .createSignedUrl(shared.storage_path, 60 * 60);
+    logoCompartido = {
+      id: shared.id,
+      nombre: shared.nombre_archivo,
+      storagePath: shared.storage_path,
+      viewUrl: data?.signedUrl ?? null,
+      isImage: isImageName(shared.nombre_archivo),
+    };
+  }
+
+  let decks: {
+    id: string;
+    nombre: string;
+    storagePath: string;
+    viewUrl: string | null;
+  }[] = [];
+
+  if (beneficio.tipo === "addon") {
+    const { data: deckRows, error: deckError } = await supabase
+      .from("archivos")
+      .select("id, nombre_archivo, storage_path")
+      .eq("sponsor_id", sponsor.sponsorId)
+      .eq("direccion", "ctw_entrega")
+      .eq("tipo", TIPO_DECK_ADDONS)
+      .order("created_at", { ascending: false });
+    if (deckError) throw new Error(deckError.message);
+    decks = await Promise.all(
+      (deckRows ?? []).map(async (archivo) => {
+        const { data } = await supabase.storage
+          .from(ARCHIVOS_BUCKET)
+          .createSignedUrl(archivo.storage_path, 60 * 60);
+        return {
+          id: archivo.id as string,
+          nombre: archivo.nombre_archivo as string,
+          storagePath: archivo.storage_path as string,
+          viewUrl: data?.signedUrl ?? null,
+        };
+      }),
+    );
+  }
   const newsletterArchivo =
     archivosConUrl.find((item) => item.tipo === TIPO_NEWSLETTER) ??
     archivosConUrl[0] ??
@@ -74,7 +133,12 @@ export default async function BeneficioDetallePage({
           </span>
           {beneficio.categoria}
         </p>
-        <h1 className="mt-1 text-2xl font-semibold">{beneficio.beneficio}</h1>
+        <h1 className="mt-1 flex flex-wrap items-center gap-2 text-2xl font-semibold">
+          {beneficio.beneficio}
+          {beneficio.tipo === "branding" && beneficio.logoCargado ? (
+            <CargadoBadge />
+          ) : null}
+        </h1>
       </div>
 
       {beneficio.detalleSolicitud ? (
@@ -107,6 +171,7 @@ export default async function BeneficioDetallePage({
                 }
               : null
           }
+          logoCompartido={logoCompartido}
         />
       ) : null}
 
@@ -158,6 +223,8 @@ export default async function BeneficioDetallePage({
           }
         />
       ) : null}
+
+      {beneficio.tipo === "addon" ? <AddonDeck archivos={decks} /> : null}
 
       {beneficio.tipo === "informativo" ? (
         <section className="rounded-xl border border-border bg-white p-5">

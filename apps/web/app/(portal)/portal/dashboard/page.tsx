@@ -3,6 +3,7 @@ import { requireSponsor } from "@/lib/auth/require-admin";
 import { getSponsorContext } from "@/lib/portal/sponsor";
 import {
   loadPortalBeneficios,
+  requiereAccion,
   resumenProgreso,
 } from "@/lib/portal/beneficios";
 import { Button } from "@/components/ui/button";
@@ -94,7 +95,7 @@ export default async function SponsorDashboardPage() {
 
   const progreso = resumenProgreso(beneficios);
   const pendientes = beneficios.filter(
-    (item) => item.tipo !== "informativo" && !item.progreso.completed,
+    (item) => requiereAccion(item.tipo) && !item.progreso.completed,
   );
 
   const timeline = timelineResult.data ?? [];

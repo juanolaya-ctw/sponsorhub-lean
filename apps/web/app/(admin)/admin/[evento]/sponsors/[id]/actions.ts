@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ENTREGABLE_TIPOS } from "@/lib/portal/beneficios";
 
 const BUCKET = "sponsorhub-archivos";
 
@@ -15,6 +16,20 @@ function safeFilename(name: string) {
 
 function isStoredObject(path: string) {
   return !/^(?:texto|https?:)/i.test(path);
+}
+
+async function removeStorageIfOrphan(
+  admin: ReturnType<typeof createAdminClient>,
+  path: string,
+) {
+  if (!isStoredObject(path)) return;
+  const { count } = await admin
+    .from("archivos")
+    .select("id", { count: "exact", head: true })
+    .eq("storage_path", path);
+  if (!count) {
+    await admin.storage.from(BUCKET).remove([path]);
+  }
 }
 
 export async function prepareReplacementUpload(
@@ -82,8 +97,52 @@ export async function finalizeReplacement(
     return { error: updateError.message };
   }
 
-  if (isStoredObject(archivo.storage_path)) {
-    await admin.storage.from(BUCKET).remove([archivo.storage_path]);
+  await removeStorageIfOrphan(admin, archivo.storage_path);
+
+  revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
+  return { error: null };
+}
+
+export async function prepareEntregaUpload(sponsorId: string, filename: string) {
+  await requireAdmin();
+  const path = `${sponsorId}/${crypto.randomUUID()}-${safeFilename(filename)}`;
+  const admin = createAdminClient();
+  const { data, error } = await admin.storage
+    .from(BUCKET)
+    .createSignedUploadUrl(path);
+
+  if (error) return { data: null, error: error.message };
+  return { data: { path: data.path, token: data.token }, error: null };
+}
+
+export async function finalizeEntregaUpload(
+  sponsorId: string,
+  eventoSlug: string,
+  storagePath: string,
+  filename: string,
+  tipo: string,
+) {
+  const { supabase, user } = await requireAdmin();
+  if (!ENTREGABLE_TIPOS.includes(tipo as (typeof ENTREGABLE_TIPOS)[number])) {
+    return { error: "Tipo de entregable no válido." };
+  }
+  if (!storagePath.startsWith(`${sponsorId}/`)) {
+    return { error: "La ruta del archivo no corresponde al sponsor." };
+  }
+
+  const { error: insertError } = await supabase.from("archivos").insert({
+    sponsor_id: sponsorId,
+    direccion: "ctw_entrega",
+    tipo,
+    nombre_archivo: filename,
+    storage_path: storagePath,
+    subido_por: user.id,
+  });
+
+  if (insertError) {
+    const admin = createAdminClient();
+    await admin.storage.from(BUCKET).remove([storagePath]);
+    return { error: insertError.message };
   }
 
   revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
@@ -117,9 +176,7 @@ export async function deleteArchivo(
     .eq("sponsor_id", sponsorId);
   if (deleteError) return { error: deleteError.message };
 
-  if (isStoredObject(archivo.storage_path)) {
-    await admin.storage.from(BUCKET).remove([archivo.storage_path]);
-  }
+  await removeStorageIfOrphan(admin, archivo.storage_path);
 
   revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
   return { error: null };

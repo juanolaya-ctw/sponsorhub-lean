@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { File as FileIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -9,6 +10,7 @@ import {
   safeFilename,
   TIPO_LOGO,
 } from "@/lib/portal/beneficios";
+import { CargadoBadge } from "../cargado-badge";
 
 type ArchivoActual = {
   id: string;
@@ -18,16 +20,51 @@ type ArchivoActual = {
   isImage: boolean;
 };
 
+async function removeStorageIfOrphan(
+  supabase: ReturnType<typeof createClient>,
+  path: string,
+) {
+  const { count } = await supabase
+    .from("archivos")
+    .select("id", { count: "exact", head: true })
+    .eq("storage_path", path);
+  if (!count) {
+    await supabase.storage.from(ARCHIVOS_BUCKET).remove([path]);
+  }
+}
+
+function LogoPreview({ archivo }: { archivo: ArchivoActual }) {
+  if (archivo.isImage && archivo.viewUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={archivo.viewUrl}
+        alt={archivo.nombre}
+        className="max-h-48 rounded-lg border border-border object-contain"
+      />
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-3">
+      <FileIcon className="size-8 text-muted-foreground" aria-hidden />
+      <p className="truncate text-sm font-medium">{archivo.nombre}</p>
+    </div>
+  );
+}
+
 export function BrandingForm({
   sponsorId,
   userId,
   compromisoId,
   archivo,
+  logoCompartido,
 }: {
   sponsorId: string;
   userId: string;
   compromisoId: string;
   archivo: ArchivoActual | null;
+  logoCompartido: ArchivoActual | null;
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -50,6 +87,7 @@ export function BrandingForm({
     }
 
     if (archivo) {
+      const previousPath = archivo.storagePath;
       const { error: updateError } = await supabase
         .from("archivos")
         .update({
@@ -66,7 +104,7 @@ export function BrandingForm({
         setPending(false);
         return;
       }
-      await supabase.storage.from(ARCHIVOS_BUCKET).remove([archivo.storagePath]);
+      await removeStorageIfOrphan(supabase, previousPath);
     } else {
       const { error: insertError } = await supabase.from("archivos").insert({
         sponsor_id: sponsorId,
@@ -89,6 +127,29 @@ export function BrandingForm({
     router.refresh();
   }
 
+  async function usarLogoCompartido() {
+    if (!logoCompartido) return;
+    setPending(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: insertError } = await supabase.from("archivos").insert({
+      sponsor_id: sponsorId,
+      direccion: "sponsor_sube",
+      tipo: TIPO_LOGO,
+      nombre_archivo: logoCompartido.nombre,
+      storage_path: logoCompartido.storagePath,
+      subido_por: userId,
+      compromiso_id: compromisoId,
+    });
+    if (insertError) {
+      setError(insertError.message);
+      setPending(false);
+      return;
+    }
+    setPending(false);
+    router.refresh();
+  }
+
   async function remove() {
     if (!archivo) return;
     setPending(true);
@@ -104,17 +165,26 @@ export function BrandingForm({
       setPending(false);
       return;
     }
-    await supabase.storage.from(ARCHIVOS_BUCKET).remove([archivo.storagePath]);
+    await removeStorageIfOrphan(supabase, archivo.storagePath);
     setPending(false);
     router.refresh();
   }
 
+  const mostrarCompartido = !archivo && logoCompartido;
+
   return (
     <section className="rounded-xl border border-border bg-white p-5">
-      <h2 className="font-semibold">Logo</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Sube el archivo en .ai o una imagen PNG de alta resolución.
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold">Logo</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {mostrarCompartido
+              ? "Ya subiste un logo en otro beneficio. Puedes reutilizarlo o cargar uno distinto."
+              : "Sube el archivo en .ai o una imagen PNG de alta resolución."}
+          </p>
+        </div>
+        {archivo || mostrarCompartido ? <CargadoBadge /> : null}
+      </div>
 
       <input
         ref={inputRef}
@@ -130,15 +200,10 @@ export function BrandingForm({
 
       {archivo ? (
         <div className="mt-4 space-y-4">
-          {archivo.isImage && archivo.viewUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={archivo.viewUrl}
-              alt={archivo.nombre}
-              className="max-h-48 rounded-lg border border-border object-contain"
-            />
+          <LogoPreview archivo={archivo} />
+          {archivo.isImage ? (
+            <p className="text-sm font-medium">{archivo.nombre}</p>
           ) : null}
-          <p className="text-sm font-medium">{archivo.nombre}</p>
           <div className="flex flex-wrap gap-2">
             {archivo.viewUrl ? (
               <Button asChild variant="outline" size="sm">
@@ -164,6 +229,30 @@ export function BrandingForm({
               onClick={() => void remove()}
             >
               Eliminar
+            </Button>
+          </div>
+        </div>
+      ) : mostrarCompartido && logoCompartido ? (
+        <div className="mt-4 space-y-4">
+          <LogoPreview archivo={logoCompartido} />
+          {logoCompartido.isImage ? (
+            <p className="text-sm font-medium">{logoCompartido.nombre}</p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              disabled={pending}
+              onClick={() => void usarLogoCompartido()}
+            >
+              {pending ? "Guardando…" : "Usar este logo"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pending}
+              onClick={() => inputRef.current?.click()}
+            >
+              Subir uno diferente
             </Button>
           </div>
         </div>
