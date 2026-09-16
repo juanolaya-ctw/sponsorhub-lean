@@ -1,19 +1,12 @@
 import Link from "next/link";
 import { requireSponsor } from "@/lib/auth/require-admin";
 import { getSponsorContext } from "@/lib/portal/sponsor";
-import { INSUMOS_REQUERIDOS } from "@/lib/portal/insumos";
+import {
+  loadPortalBeneficios,
+  resumenProgreso,
+} from "@/lib/portal/beneficios";
 import { Button } from "@/components/ui/button";
 import { WelcomeOnboardingDialog } from "./welcome-onboarding-dialog";
-
-type TimelineItem = {
-  compromiso_id: string;
-  categoria: string | null;
-  beneficio: string | null;
-  estado_nombre: string | null;
-  estado_color: string | null;
-  es_estado_final: boolean | null;
-  fecha_limite: string | null;
-};
 
 type CatalogoItem = {
   id: string;
@@ -79,40 +72,25 @@ export default async function SponsorDashboardPage() {
     getSponsorContext(),
   ]);
 
-  const [timelineResult, archivosResult] = await Promise.all([
+  const [beneficios, timelineResult] = await Promise.all([
+    loadPortalBeneficios(supabase, sponsor.sponsorId),
     supabase
       .from("v_timeline_sponsor")
       .select(
-        "compromiso_id, categoria, beneficio, estado_nombre, estado_color, es_estado_final, fecha_limite",
+        "compromiso_id, categoria, beneficio, estado_nombre, estado_color, fecha_limite",
       )
       .eq("sponsor_id", sponsor.sponsorId),
-    supabase
-      .from("archivos")
-      .select("id, direccion")
-      .eq("sponsor_id", sponsor.sponsorId)
-      .eq("direccion", "sponsor_sube"),
   ]);
 
   if (timelineResult.error) throw new Error(timelineResult.error.message);
-  if (archivosResult.error) throw new Error(archivosResult.error.message);
 
-  const timeline = (timelineResult.data ?? []) as TimelineItem[];
-  const tieneArchivos = (archivosResult.data ?? []).length > 0;
+  const progreso = resumenProgreso(beneficios);
+  const pendientes = beneficios.filter(
+    (item) => item.tipo !== "informativo" && !item.progreso.completed,
+  );
 
-  // Progreso general: compromisos en estado final sobre el total de
-  // compromisos. Sin compromisos → 0%. Se recalcula en cada carga (el
-  // sync es periódico, no en vivo).
-  const totalCompromisos = timeline.length;
-  const compromisosCompletados = timeline.filter(
-    (item) => item.es_estado_final === true,
-  ).length;
-  const progresoPct =
-    totalCompromisos > 0
-      ? Math.round((compromisosCompletados / totalCompromisos) * 100)
-      : 0;
+  const timeline = timelineResult.data ?? [];
 
-  // Fallback: si aún no hay compromisos generados, mostramos los beneficios
-  // del tier del sponsor directamente desde el catálogo.
   let catalogo: CatalogoItem[] = [];
   if (timeline.length === 0 && sponsor.paquete && sponsor.eventoId) {
     const catalogoResult = await supabase
@@ -128,12 +106,12 @@ export default async function SponsorDashboardPage() {
   const rows: TimelineRow[] =
     timeline.length > 0
       ? timeline.map((item) => ({
-          key: item.compromiso_id,
-          beneficio: item.beneficio ?? "Beneficio",
-          categoria: item.categoria ?? "Otros",
-          estadoNombre: item.estado_nombre,
-          estadoColor: item.estado_color,
-          fechaLimite: item.fecha_limite,
+          key: item.compromiso_id as string,
+          beneficio: (item.beneficio as string | null) ?? "Beneficio",
+          categoria: (item.categoria as string | null) ?? "Otros",
+          estadoNombre: (item.estado_nombre as string | null) ?? null,
+          estadoColor: (item.estado_color as string | null) ?? null,
+          fechaLimite: (item.fecha_limite as string | null) ?? null,
         }))
       : catalogo.map((item) => ({
           key: item.id,
@@ -148,8 +126,14 @@ export default async function SponsorDashboardPage() {
 
   return (
     <main className="mx-auto max-w-4xl space-y-10 px-6 py-10">
-      {!tieneArchivos ? (
-        <WelcomeOnboardingDialog insumos={INSUMOS_REQUERIDOS} />
+      {progreso.completados === 0 && pendientes.length > 0 ? (
+        <WelcomeOnboardingDialog
+          beneficios={pendientes.map((item) => ({
+            compromisoId: item.compromisoId,
+            beneficio: item.beneficio,
+            categoria: item.categoria,
+          }))}
+        />
       ) : null}
 
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -163,7 +147,7 @@ export default async function SponsorDashboardPage() {
           asChild
           className="bg-[#040402] text-white hover:bg-[#040402]/90"
         >
-          <Link href="/portal/recursos">Gestionar recursos</Link>
+          <Link href="/portal/recursos">Gestionar beneficios</Link>
         </Button>
       </div>
 
@@ -171,17 +155,17 @@ export default async function SponsorDashboardPage() {
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-xl font-semibold">Progreso general</h2>
           <span className="text-sm font-semibold text-muted-foreground">
-            {progresoPct}%
+            {progreso.pct}%
           </span>
         </div>
         <div className="mt-3 h-3 w-full overflow-hidden rounded-full bg-muted">
           <div
             className="h-full rounded-full bg-[#42B3F3] transition-all"
-            style={{ width: `${progresoPct}%` }}
+            style={{ width: `${progreso.pct}%` }}
           />
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
-          {compromisosCompletados} de {totalCompromisos} beneficios completados
+          {progreso.completados} de {progreso.total} beneficios completados
         </p>
       </section>
 

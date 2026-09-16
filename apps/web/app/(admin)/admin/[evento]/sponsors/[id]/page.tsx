@@ -39,6 +39,23 @@ type ArchivoSponsor = {
   created_at: string;
 };
 
+type AccesoPersonaAdmin = {
+  id: string;
+  nombre: string;
+  apellido: string | null;
+  email: string | null;
+  documento_identidad: string | null;
+  linkedin_url: string | null;
+  rol_ecosistema: string | null;
+  numero_celular: string | null;
+  pais_residencia: string | null;
+  empresa: string | null;
+  industria: string | null;
+  nivel_cargo: string | null;
+  cargo: string | null;
+  tipo: string;
+};
+
 const INSUMO_LABEL = new Map(
   INSUMOS_REQUERIDOS.map((insumo) => [insumo.key, insumo.nombre]),
 );
@@ -83,7 +100,7 @@ export default async function SponsorDetallePage({
   if (!sponsorData) notFound();
   const sponsor = sponsorData as SponsorDetalle;
 
-  const [archivosResult, compromisosResult, estadosResult, tiersResult] =
+  const [archivosResult, compromisosResult, estadosResult, tiersResult, accesosResult] =
     await Promise.all([
     supabase
       .from("archivos")
@@ -108,17 +125,26 @@ export default async function SponsorDetallePage({
       .select("tier")
       .eq("evento_id", evento.id)
       .order("tier"),
+    supabase
+      .from("accesos_personas")
+      .select(
+        "id, nombre, apellido, email, documento_identidad, linkedin_url, rol_ecosistema, numero_celular, pais_residencia, empresa, industria, nivel_cargo, cargo, tipo",
+      )
+      .eq("sponsor_id", sponsor.id)
+      .order("created_at"),
     ]);
 
   if (archivosResult.error) throw new Error(archivosResult.error.message);
   if (compromisosResult.error) throw new Error(compromisosResult.error.message);
   if (estadosResult.error) throw new Error(estadosResult.error.message);
   if (tiersResult.error) throw new Error(tiersResult.error.message);
+  if (accesosResult.error) throw new Error(accesosResult.error.message);
 
   const archivosData = archivosResult.data;
   const archivos = (archivosData ?? []) as ArchivoSponsor[];
   const compromisos = (compromisosResult.data ?? []) as unknown as CompromisoRow[];
   const estados = (estadosResult.data ?? []) as EstadoOption[];
+  const accesos = (accesosResult.data ?? []) as AccesoPersonaAdmin[];
   const tiers = Array.from(
     new Set((tiersResult.data ?? []).map((item) => item.tier)),
   );
@@ -284,6 +310,75 @@ export default async function SponsorDetallePage({
                     </TableCell>
                   </TableRow>
                 ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2 className="text-lg font-semibold">Accesos</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Personas registradas por el sponsor para accesos generales y VIP.
+        </p>
+        {accesos.length === 0 ? (
+          <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-12 text-center">
+            <p className="font-medium">Este sponsor aún no ha registrado personas</p>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-xl border border-border bg-white">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Nombre completo</TableHead>
+                  <TableHead>Documento</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>LinkedIn</TableHead>
+                  <TableHead>Rol ecosistema</TableHead>
+                  <TableHead>Celular</TableHead>
+                  <TableHead>País</TableHead>
+                  <TableHead>Empresa</TableHead>
+                  <TableHead>Industria</TableHead>
+                  <TableHead>Nivel de cargo</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {accesos.map((persona) => {
+                  const nombre = [persona.nombre, persona.apellido]
+                    .filter(Boolean)
+                    .join(" ");
+                  return (
+                    <TableRow key={persona.id}>
+                      <TableCell className="capitalize">{persona.tipo}</TableCell>
+                      <TableCell className="font-medium">{nombre || "—"}</TableCell>
+                      <TableCell>{persona.documento_identidad ?? "—"}</TableCell>
+                      <TableCell>{persona.email ?? "—"}</TableCell>
+                      <TableCell>
+                        {persona.linkedin_url ? (
+                          <a
+                            href={persona.linkedin_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-secondary hover:underline"
+                          >
+                            Ver perfil
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell>{persona.rol_ecosistema ?? "—"}</TableCell>
+                      <TableCell>{persona.numero_celular ?? "—"}</TableCell>
+                      <TableCell>{persona.pais_residencia ?? "—"}</TableCell>
+                      <TableCell>{persona.empresa ?? "—"}</TableCell>
+                      <TableCell>{persona.industria ?? "—"}</TableCell>
+                      <TableCell>
+                        {persona.nivel_cargo ?? persona.cargo ?? "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

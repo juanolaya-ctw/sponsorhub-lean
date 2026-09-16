@@ -1,0 +1,360 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+export const ARCHIVOS_BUCKET = "sponsorhub-archivos";
+
+export const TIPO_LOGO = "logo";
+export const TIPO_NEWSLETTER = "newsletter";
+export const TIPO_SPEAKER_FORM = "speaker_form_completado";
+
+export type TipoFormulario =
+  | "branding"
+  | "accesos"
+  | "newsletter"
+  | "speaker"
+  | "informativo";
+
+export type NewsletterPayload = {
+  titulo: string;
+  cuerpo: string;
+  cta: string;
+};
+
+export type ArchivoPortal = {
+  id: string;
+  tipo: string;
+  nombre_archivo: string;
+  storage_path: string;
+  compromiso_id: string | null;
+  created_at: string;
+};
+
+export type AccesoPersona = {
+  id: string;
+  nombre: string;
+  apellido: string | null;
+  email: string | null;
+  documento_identidad: string | null;
+  linkedin_url: string | null;
+  rol_ecosistema: string | null;
+  numero_celular: string | null;
+  pais_residencia: string | null;
+  empresa: string | null;
+  industria: string | null;
+  nivel_cargo: string | null;
+  tipo: string;
+  compromiso_id: string | null;
+};
+
+export type ProgresoBeneficio = {
+  current: number;
+  total: number;
+  pct: number;
+  completed: boolean;
+  label: string;
+  multiple: boolean;
+};
+
+export type BeneficioPortal = {
+  compromisoId: string;
+  beneficio: string;
+  categoria: string;
+  cantidad: number | null;
+  detalleSolicitud: string | null;
+  notas: string | null;
+  estadoNombre: string | null;
+  estadoColor: string | null;
+  tipo: TipoFormulario;
+  progreso: ProgresoBeneficio;
+  archivos: ArchivoPortal[];
+  personas: AccesoPersona[];
+};
+
+type CatalogoJoin = {
+  beneficio: string;
+  categoria: string;
+  cantidad: number | null;
+  detalle_solicitud: string | null;
+  notas: string | null;
+  orden: number | null;
+};
+
+type EstadoJoin = {
+  nombre: string;
+  color: string | null;
+};
+
+type CompromisoRow = {
+  id: string;
+  tipo: string;
+  catalogo_beneficios: CatalogoJoin | CatalogoJoin[] | null;
+  estados_compromiso: EstadoJoin | EstadoJoin[] | null;
+};
+
+function one<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+export function iconoCategoria(categoria: string): string {
+  const value = categoria.toLowerCase();
+  if (value.includes("branding") || value.includes("logo")) return "🎨";
+  if (value.includes("acceso")) return "👥";
+  if (value.includes("newsletter")) return "📧";
+  if (value.includes("stand")) return "🏗️";
+  if (
+    value.includes("speaker") ||
+    value.includes("workshop") ||
+    value.includes("panel")
+  ) {
+    return "🎤";
+  }
+  if (value.includes("descuento") || value.includes("add-on")) return "💰";
+  return "📦";
+}
+
+export function tipoFormulario(categoria: string): TipoFormulario {
+  const value = categoria.toLowerCase();
+  if (value.includes("branding") || value.includes("logo")) return "branding";
+  if (value.includes("acceso")) return "accesos";
+  if (value.includes("newsletter")) return "newsletter";
+  if (
+    value.includes("speaker") ||
+    value.includes("workshop") ||
+    value.includes("panel")
+  ) {
+    return "speaker";
+  }
+  return "informativo";
+}
+
+export function esInformativo(categoria: string): boolean {
+  return tipoFormulario(categoria) === "informativo";
+}
+
+export function tipoAccesoFromCategoria(
+  categoria: string,
+): "vip" | "general" {
+  return categoria.toLowerCase().includes("vip") ? "vip" : "general";
+}
+
+export function safeFilename(name: string) {
+  return name
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-");
+}
+
+export function isStoredObject(path: string) {
+  return !/^(?:texto|https?:|speaker_form_completado)/i.test(path);
+}
+
+export function isImageName(name: string) {
+  return /\.(png|jpe?g|webp|gif|svg)$/i.test(name);
+}
+
+export function countWords(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).length;
+}
+
+export function parseNewsletter(
+  nombreArchivo: string,
+): NewsletterPayload | null {
+  try {
+    const parsed = JSON.parse(nombreArchivo) as Partial<NewsletterPayload>;
+    if (parsed && typeof parsed.titulo === "string") {
+      return {
+        titulo: parsed.titulo,
+        cuerpo: typeof parsed.cuerpo === "string" ? parsed.cuerpo : "",
+        cta: typeof parsed.cta === "string" ? parsed.cta : "",
+      };
+    }
+  } catch {
+    // Contenido legado que no es JSON.
+  }
+  return null;
+}
+
+export function newsletterCompleto(
+  payload: NewsletterPayload | null,
+  storagePath: string | null,
+): boolean {
+  if (!payload) return false;
+  return (
+    payload.titulo.trim().length > 0 &&
+    payload.cuerpo.trim().length > 0 &&
+    payload.cta.trim().length > 0 &&
+    Boolean(storagePath && isStoredObject(storagePath))
+  );
+}
+
+export function progresoBeneficio(
+  tipo: TipoFormulario,
+  cantidad: number | null,
+  archivos: ArchivoPortal[],
+  personas: AccesoPersona[],
+): ProgresoBeneficio {
+  if (tipo === "informativo") {
+    return {
+      current: 0,
+      total: 0,
+      pct: 0,
+      completed: false,
+      label: "No requiere acción",
+      multiple: false,
+    };
+  }
+
+  if (tipo === "accesos") {
+    const current = personas.length;
+    const total = cantidad && cantidad > 0 ? cantidad : 0;
+    const completed = current >= 1;
+    if (total > 0) {
+      return {
+        current,
+        total,
+        pct: Math.min(100, Math.round((current / total) * 100)),
+        completed,
+        label: `${current} de ${total} personas registradas`,
+        multiple: true,
+      };
+    }
+    return {
+      current,
+      total: Math.max(current, 1),
+      pct: completed ? 100 : 0,
+      completed,
+      label:
+        current === 1
+          ? "1 persona registrada"
+          : `${current} personas registradas`,
+      multiple: true,
+    };
+  }
+
+  if (tipo === "branding") {
+    const completed = archivos.some((item) => isStoredObject(item.storage_path));
+    return {
+      current: completed ? 1 : 0,
+      total: 1,
+      pct: completed ? 100 : 0,
+      completed,
+      label: completed ? "Logo subido" : "Pendiente",
+      multiple: false,
+    };
+  }
+
+  if (tipo === "newsletter") {
+    const row = archivos.find((item) => item.tipo === TIPO_NEWSLETTER) ?? archivos[0];
+    const completed = newsletterCompleto(
+      row ? parseNewsletter(row.nombre_archivo) : null,
+      row?.storage_path ?? null,
+    );
+    return {
+      current: completed ? 1 : 0,
+      total: 1,
+      pct: completed ? 100 : 0,
+      completed,
+      label: completed ? "Contenido guardado" : "Pendiente",
+      multiple: false,
+    };
+  }
+
+  const completed = archivos.some((item) => item.tipo === TIPO_SPEAKER_FORM);
+  return {
+    current: completed ? 1 : 0,
+    total: 1,
+    pct: completed ? 100 : 0,
+    completed,
+    label: completed ? "Formulario completado" : "Pendiente",
+    multiple: false,
+  };
+}
+
+function mapCompromiso(
+  row: CompromisoRow,
+  archivos: ArchivoPortal[],
+  personas: AccesoPersona[],
+): BeneficioPortal {
+  const catalogo = one(row.catalogo_beneficios);
+  const estado = one(row.estados_compromiso);
+  const categoria = catalogo?.categoria ?? "Otros";
+  const tipo = tipoFormulario(categoria);
+  const archivosDel = archivos.filter((item) => item.compromiso_id === row.id);
+  const personasDel = personas.filter((item) => item.compromiso_id === row.id);
+
+  return {
+    compromisoId: row.id,
+    beneficio: catalogo?.beneficio ?? row.tipo,
+    categoria,
+    cantidad: catalogo?.cantidad ?? null,
+    detalleSolicitud: catalogo?.detalle_solicitud ?? null,
+    notas: catalogo?.notas ?? null,
+    estadoNombre: estado?.nombre ?? null,
+    estadoColor: estado?.color ?? null,
+    tipo,
+    progreso: progresoBeneficio(tipo, catalogo?.cantidad ?? null, archivosDel, personasDel),
+    archivos: archivosDel,
+    personas: personasDel,
+  };
+}
+
+export function resumenProgreso(beneficios: BeneficioPortal[]) {
+  const accionables = beneficios.filter((item) => item.tipo !== "informativo");
+  const completados = accionables.filter((item) => item.progreso.completed).length;
+  const total = accionables.length;
+  return {
+    completados,
+    total,
+    pct: total > 0 ? Math.round((completados / total) * 100) : 0,
+  };
+}
+
+export async function loadPortalBeneficios(
+  supabase: SupabaseClient,
+  sponsorId: string,
+): Promise<BeneficioPortal[]> {
+  const [compromisosResult, archivosResult, personasResult] = await Promise.all([
+    supabase
+      .from("compromisos")
+      .select(
+        "id, tipo, catalogo_beneficios(beneficio, categoria, cantidad, detalle_solicitud, notas, orden), estados_compromiso(nombre, color)",
+      )
+      .eq("sponsor_id", sponsorId),
+    supabase
+      .from("archivos")
+      .select("id, tipo, nombre_archivo, storage_path, compromiso_id, created_at")
+      .eq("sponsor_id", sponsorId)
+      .eq("direccion", "sponsor_sube")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("accesos_personas")
+      .select(
+        "id, nombre, apellido, email, documento_identidad, linkedin_url, rol_ecosistema, numero_celular, pais_residencia, empresa, industria, nivel_cargo, tipo, compromiso_id",
+      )
+      .eq("sponsor_id", sponsorId)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  if (compromisosResult.error) throw new Error(compromisosResult.error.message);
+  if (archivosResult.error) throw new Error(archivosResult.error.message);
+  if (personasResult.error) throw new Error(personasResult.error.message);
+
+  const archivos = (archivosResult.data ?? []) as ArchivoPortal[];
+  const personas = (personasResult.data ?? []) as AccesoPersona[];
+  const mapped = ((compromisosResult.data ?? []) as CompromisoRow[]).map((row) =>
+    mapCompromiso(row, archivos, personas),
+  );
+
+  return mapped.sort((a, b) => a.categoria.localeCompare(b.categoria, "es"));
+}
+
+export async function loadPortalBeneficio(
+  supabase: SupabaseClient,
+  sponsorId: string,
+  compromisoId: string,
+): Promise<BeneficioPortal | null> {
+  const beneficios = await loadPortalBeneficios(supabase, sponsorId);
+  return beneficios.find((item) => item.compromisoId === compromisoId) ?? null;
+}
