@@ -7,6 +7,7 @@ import {
 } from "@/lib/portal/beneficios";
 import { Button } from "@/components/ui/button";
 import { WelcomeOnboardingDialog } from "./welcome-onboarding-dialog";
+import { RecursosDisponibles } from "./recursos-disponibles";
 
 type CatalogoItem = {
   id: string;
@@ -72,7 +73,7 @@ export default async function SponsorDashboardPage() {
     getSponsorContext(),
   ]);
 
-  const [beneficios, timelineResult] = await Promise.all([
+  const [beneficios, timelineResult, ctResult] = await Promise.all([
     loadPortalBeneficios(supabase, sponsor.sponsorId),
     supabase
       .from("v_timeline_sponsor")
@@ -80,9 +81,16 @@ export default async function SponsorDashboardPage() {
         "compromiso_id, categoria, beneficio, estado_nombre, estado_color, fecha_limite",
       )
       .eq("sponsor_id", sponsor.sponsorId),
+    supabase
+      .from("archivos")
+      .select("id, nombre_archivo, storage_path")
+      .eq("sponsor_id", sponsor.sponsorId)
+      .eq("direccion", "ctw_entrega")
+      .order("created_at", { ascending: false }),
   ]);
 
   if (timelineResult.error) throw new Error(timelineResult.error.message);
+  if (ctResult.error) throw new Error(ctResult.error.message);
 
   const progreso = resumenProgreso(beneficios);
   const pendientes = beneficios.filter(
@@ -127,13 +135,7 @@ export default async function SponsorDashboardPage() {
   return (
     <main className="mx-auto max-w-4xl space-y-10 px-6 py-10">
       {progreso.completados === 0 && pendientes.length > 0 ? (
-        <WelcomeOnboardingDialog
-          beneficios={pendientes.map((item) => ({
-            compromisoId: item.compromisoId,
-            beneficio: item.beneficio,
-            categoria: item.categoria,
-          }))}
-        />
+        <WelcomeOnboardingDialog />
       ) : null}
 
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -168,6 +170,8 @@ export default async function SponsorDashboardPage() {
           {progreso.completados} de {progreso.total} beneficios completados
         </p>
       </section>
+
+      <RecursosDisponibles archivos={ctResult.data ?? []} />
 
       <section>
         <h2 className="text-xl font-semibold">Tus beneficios</h2>

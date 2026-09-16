@@ -1,62 +1,51 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
-export function WelcomeOnboardingDialog({
-  beneficios,
-}: {
-  beneficios: { compromisoId: string; beneficio: string; categoria: string }[];
-}) {
+export function WelcomeOnboardingDialog() {
   const [open, setOpen] = useState(true);
-  const router = useRouter();
-
-  function irACompletar() {
-    setOpen(false);
-    const first = beneficios[0];
-    router.push(first ? `/portal/recursos/${first.compromisoId}` : "/portal/recursos");
-  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-lg" showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle className="text-lg leading-snug">
-            Te damos la bienvenida a SponsorHub. Antes de comenzar, completa
-            estos beneficios.
-          </DialogTitle>
-          <DialogDescription>
-            Con esta información el equipo de ColombiaTech puede activar tu
-            patrocinio a tiempo.
-          </DialogDescription>
-        </DialogHeader>
-
-        <ul className="max-h-64 space-y-2 overflow-y-auto text-sm">
-          {beneficios.map((item) => (
-            <li key={item.compromisoId} className="flex gap-2">
-              <span aria-hidden className="mt-1 size-1.5 shrink-0 rounded-full bg-primary" />
-              <div>
-                <p className="font-medium">{item.beneficio}</p>
-                <p className="text-muted-foreground">{item.categoria}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
-
-        <DialogFooter>
-          <Button type="button" onClick={irACompletar}>
-            Ir a completar beneficios
+      <DialogContent
+        showCloseButton={false}
+        className="overflow-hidden bg-white sm:max-w-md"
+      >
+        <div className="flex flex-col items-center text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/illustration-login.png"
+            alt=""
+            aria-hidden
+            className="h-[200px] w-auto object-contain"
+          />
+          <DialogHeader className="mt-4 items-center">
+            <DialogTitle className="text-xl font-semibold leading-snug">
+              Bienvenido a SponsorHub
+            </DialogTitle>
+            <DialogDescription className="text-center text-sm leading-relaxed">
+              Aquí puedes hacer seguimiento en tiempo real al estado de cada uno
+              de tus beneficios como sponsor de ColombiaTech, subir los recursos
+              que necesitamos para activarlos y descargar los entregables que el
+              equipo preparó para ti.
+            </DialogDescription>
+          </DialogHeader>
+          <Button
+            type="button"
+            className="mt-6 w-full bg-[#040402] text-white hover:bg-[#040402]/90"
+            onClick={() => setOpen(false)}
+          >
+            Empezar
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
