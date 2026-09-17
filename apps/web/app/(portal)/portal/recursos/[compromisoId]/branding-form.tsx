@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import {
   ARCHIVOS_BUCKET,
+  isStoredObject,
   safeFilename,
   TIPO_LOGO,
 } from "@/lib/portal/beneficios";
@@ -28,7 +29,7 @@ async function removeStorageIfOrphan(
     .from("archivos")
     .select("id", { count: "exact", head: true })
     .eq("storage_path", path);
-  if (!count) {
+  if (!count && isStoredObject(path)) {
     await supabase.storage.from(ARCHIVOS_BUCKET).remove([path]);
   }
 }
@@ -151,21 +152,22 @@ export function BrandingForm({
   }
 
   async function remove() {
-    if (!archivo) return;
+    const target = archivo ?? logoCompartido;
+    if (!target) return;
     setPending(true);
     setError(null);
     const supabase = createClient();
     const { error: deleteError } = await supabase
       .from("archivos")
       .delete()
-      .eq("id", archivo.id)
-      .eq("sponsor_id", sponsorId);
+      .eq("sponsor_id", sponsorId)
+      .eq("storage_path", target.storagePath);
     if (deleteError) {
       setError(deleteError.message);
       setPending(false);
       return;
     }
-    await removeStorageIfOrphan(supabase, archivo.storagePath);
+    await removeStorageIfOrphan(supabase, target.storagePath);
     setPending(false);
     router.refresh();
   }
@@ -253,6 +255,14 @@ export function BrandingForm({
               onClick={() => inputRef.current?.click()}
             >
               Subir uno diferente
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={pending}
+              onClick={() => void remove()}
+            >
+              Eliminar
             </Button>
           </div>
         </div>

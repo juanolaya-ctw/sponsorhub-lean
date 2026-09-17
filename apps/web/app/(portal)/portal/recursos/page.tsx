@@ -7,16 +7,7 @@ import {
   loadPortalBeneficios,
   requiereAccion,
 } from "@/lib/portal/beneficios";
-import { DownloadButton } from "../dashboard/download-button";
 import { Button } from "@/components/ui/button";
-import { CargadoBadge } from "./cargado-badge";
-
-type ArchivoCT = {
-  id: string;
-  nombre_archivo: string;
-  storage_path: string;
-  tipo: string;
-};
 
 function EstadoBadge({
   nombre,
@@ -51,18 +42,7 @@ export default async function RecursosPage() {
     getSponsorContext(),
   ]);
 
-  const [beneficios, ctResult] = await Promise.all([
-    loadPortalBeneficios(supabase, sponsor.sponsorId),
-    supabase
-      .from("archivos")
-      .select("id, nombre_archivo, storage_path, tipo")
-      .eq("sponsor_id", sponsor.sponsorId)
-      .eq("direccion", "ctw_entrega")
-      .order("created_at", { ascending: false }),
-  ]);
-
-  if (ctResult.error) throw new Error(ctResult.error.message);
-  const ctEntrega = (ctResult.data ?? []) as ArchivoCT[];
+  const beneficios = await loadPortalBeneficios(supabase, sponsor.sponsorId);
 
   return (
     <main className="mx-auto max-w-5xl space-y-10 px-6 py-10">
@@ -103,15 +83,18 @@ export default async function RecursosPage() {
                   </span>
                   {item.categoria}
                 </p>
-                <div className="flex shrink-0 flex-col items-end gap-1">
-                  <EstadoBadge
-                    nombre={item.estadoNombre}
-                    color={item.estadoColor}
-                  />
-                  {item.tipo === "branding" && item.logoCargado ? (
-                    <CargadoBadge />
-                  ) : null}
-                </div>
+                <EstadoBadge
+                  nombre={
+                    item.tipo === "branding" && item.logoCargado
+                      ? "Cargado"
+                      : item.estadoNombre
+                  }
+                  color={
+                    item.tipo === "branding" && item.logoCargado
+                      ? "#16a34a"
+                      : item.estadoColor
+                  }
+                />
               </div>
               <h2 className="mt-3 text-lg font-semibold leading-snug">
                 {item.beneficio}
@@ -148,35 +131,6 @@ export default async function RecursosPage() {
           ))}
         </section>
       )}
-
-      <section>
-        <h2 className="text-xl font-semibold">Entregables de ColombiaTech</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Archivos que el equipo de ColombiaTech preparó para ti.
-        </p>
-        <div className="mt-4 rounded-xl border border-border bg-white p-5">
-          <ul className="divide-y divide-border">
-            {ctEntrega.length === 0 ? (
-              <li className="py-4 text-sm text-muted-foreground">
-                CT aún no ha publicado archivos.
-              </li>
-            ) : (
-              ctEntrega.map((archivo) => (
-                <li key={archivo.id} className="flex items-center gap-3 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{archivo.nombre_archivo}</p>
-                    <p className="text-xs text-muted-foreground">{archivo.tipo}</p>
-                  </div>
-                  <DownloadButton
-                    path={archivo.storage_path}
-                    filename={archivo.nombre_archivo}
-                  />
-                </li>
-              ))
-            )}
-          </ul>
-        </div>
-      </section>
     </main>
   );
 }

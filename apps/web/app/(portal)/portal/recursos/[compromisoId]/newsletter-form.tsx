@@ -16,6 +16,20 @@ import {
   type NewsletterPayload,
 } from "@/lib/portal/beneficios";
 
+async function removeStorageIfOrphan(
+  supabase: ReturnType<typeof createClient>,
+  path: string,
+) {
+  if (!isStoredObject(path)) return;
+  const { count } = await supabase
+    .from("archivos")
+    .select("id", { count: "exact", head: true })
+    .eq("storage_path", path);
+  if (!count) {
+    await supabase.storage.from(ARCHIVOS_BUCKET).remove([path]);
+  }
+}
+
 const MAX_TITULO = 60;
 const MAX_PALABRAS = 100;
 const IMAGE_SIZE = 1080;
@@ -169,6 +183,30 @@ export function NewsletterForm({
     router.refresh();
   }
 
+  async function remove() {
+    if (!archivo) return;
+    setPending(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: deleteError } = await supabase
+      .from("archivos")
+      .delete()
+      .eq("id", archivo.id)
+      .eq("sponsor_id", sponsorId);
+    if (deleteError) {
+      setError(deleteError.message);
+      setPending(false);
+      return;
+    }
+    await removeStorageIfOrphan(supabase, archivo.storagePath);
+    setTitulo("");
+    setCuerpo("");
+    setCta("");
+    setFile(null);
+    setPending(false);
+    router.refresh();
+  }
+
   return (
     <section className="rounded-xl border border-border bg-white p-5">
       <h2 className="font-semibold">Contenido del newsletter</h2>
@@ -249,9 +287,21 @@ export function NewsletterForm({
           />
         </div>
 
-        <Button type="submit" disabled={pending}>
-          {pending ? "Guardando…" : archivo ? "Guardar cambios" : "Guardar newsletter"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="submit" disabled={pending}>
+            {pending ? "Guardando…" : archivo ? "Guardar cambios" : "Guardar newsletter"}
+          </Button>
+          {archivo ? (
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={pending}
+              onClick={() => void remove()}
+            >
+              Eliminar
+            </Button>
+          ) : null}
+        </div>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </form>
     </section>

@@ -84,7 +84,7 @@ export default async function SponsorDashboardPage() {
       .eq("sponsor_id", sponsor.sponsorId),
     supabase
       .from("archivos")
-      .select("id, nombre_archivo, storage_path")
+      .select("id, nombre_archivo, storage_path, tipo")
       .eq("sponsor_id", sponsor.sponsorId)
       .eq("direccion", "ctw_entrega")
       .order("created_at", { ascending: false }),
