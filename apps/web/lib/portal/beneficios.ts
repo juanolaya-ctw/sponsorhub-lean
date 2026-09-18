@@ -293,10 +293,12 @@ export function progresoBeneficio(
 
   if (tipo === "newsletter") {
     const row = archivos.find((item) => item.tipo === TIPO_NEWSLETTER) ?? archivos[0];
-    const completed = newsletterCompleto(
-      row ? parseNewsletter(row.nombre_archivo) : null,
-      row?.storage_path ?? null,
-    );
+    // Formulario completo (JSON + imagen) O archivo real subido por CS
+    const completed =
+      newsletterCompleto(
+        row ? parseNewsletter(row.nombre_archivo) : null,
+        row?.storage_path ?? null,
+      ) || Boolean(row && isStoredObject(row.storage_path));
     return {
       current: completed ? 1 : 0,
       total: 1,
@@ -417,7 +419,7 @@ export async function loadPortalBeneficios(
       .from("archivos")
       .select("id, tipo, nombre_archivo, storage_path, compromiso_id, created_at")
       .eq("sponsor_id", sponsorId)
-      .eq("direccion", "sponsor_sube")
+      .in("direccion", ["sponsor_sube", "admin_sube_por_sponsor"])
       .order("created_at", { ascending: false }),
     supabase
       .from("accesos_personas")

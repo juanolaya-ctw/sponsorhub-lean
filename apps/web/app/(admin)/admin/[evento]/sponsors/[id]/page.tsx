@@ -24,6 +24,7 @@ import {
 } from "../../compromisos/commitments-table";
 import { DeleteSponsorButton } from "../delete-sponsor-button";
 import { TierSelect } from "../tier-select";
+import type { ArchivoPorSponsor } from "./upload-por-sponsor";
 
 const BUCKET = "sponsorhub-archivos";
 const SIGNED_URL_TTL = 60 * 60; // 1 hora
@@ -106,8 +107,15 @@ export default async function SponsorDetallePage({
   if (!sponsorData) notFound();
   const sponsor = sponsorData as SponsorDetalle;
 
-  const [archivosResult, entregasResult, compromisosResult, estadosResult, tiersResult, accesosResult] =
-    await Promise.all([
+  const [
+    archivosResult,
+    entregasResult,
+    compromisosResult,
+    estadosResult,
+    tiersResult,
+    accesosResult,
+    archivosBeneficioResult,
+  ] = await Promise.all([
     supabase
       .from("archivos")
       .select("id, tipo, nombre_archivo, storage_path, created_at")
@@ -144,7 +152,14 @@ export default async function SponsorDetallePage({
       )
       .eq("sponsor_id", sponsor.id)
       .order("created_at"),
-    ]);
+    supabase
+      .from("archivos")
+      .select("id, compromiso_id, nombre_archivo, storage_path, created_at")
+      .eq("sponsor_id", sponsor.id)
+      .in("direccion", ["sponsor_sube", "admin_sube_por_sponsor"])
+      .not("compromiso_id", "is", null)
+      .order("created_at", { ascending: false }),
+  ]);
 
   if (archivosResult.error) throw new Error(archivosResult.error.message);
   if (entregasResult.error) throw new Error(entregasResult.error.message);
@@ -152,6 +167,9 @@ export default async function SponsorDetallePage({
   if (estadosResult.error) throw new Error(estadosResult.error.message);
   if (tiersResult.error) throw new Error(tiersResult.error.message);
   if (accesosResult.error) throw new Error(accesosResult.error.message);
+  if (archivosBeneficioResult.error) {
+    throw new Error(archivosBeneficioResult.error.message);
+  }
 
   const archivosData = archivosResult.data;
   const archivos = (archivosData ?? []) as ArchivoSponsor[];
@@ -165,6 +183,18 @@ export default async function SponsorDetallePage({
   const tiers = Array.from(
     new Set((tiersResult.data ?? []).map((item) => item.tier)),
   );
+
+  // Más reciente por compromiso (query ordenada desc por created_at).
+  const archivosPorCompromiso = new Map<string, ArchivoPorSponsor>();
+  for (const row of archivosBeneficioResult.data ?? []) {
+    const compromisoId = row.compromiso_id as string | null;
+    if (!compromisoId || archivosPorCompromiso.has(compromisoId)) continue;
+    archivosPorCompromiso.set(compromisoId, {
+      id: row.id as string,
+      nombre: row.nombre_archivo as string,
+      storagePath: row.storage_path as string,
+    });
+  }
 
   // Las URLs firmadas se generan con el cliente de service_role porque las
   // policies de Storage solo dan acceso al propio sponsor. Esta página está
@@ -438,6 +468,7 @@ export default async function SponsorDetallePage({
           eventoId={evento.id}
           eventoSlug={evento.slug}
           sponsorId={sponsor.id}
+          archivosPorCompromiso={archivosPorCompromiso}
         />
       ) : (
         <section>

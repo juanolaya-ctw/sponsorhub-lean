@@ -40,6 +40,10 @@ import {
 } from "../../compromisos/actions";
 import { EstadoSelect } from "../../compromisos/estado-select";
 import type { EstadoOption } from "../../compromisos/commitments-table";
+import {
+  UploadPorSponsor,
+  type ArchivoPorSponsor,
+} from "./upload-por-sponsor";
 
 export type BeneficioCompromisoRow = {
   id: string;
@@ -250,12 +254,16 @@ function BeneficioGroup({
   rows,
   estados,
   eventoSlug,
+  sponsorId,
+  archivosPorCompromiso,
 }: {
   title: string;
   description?: string;
   rows: BeneficioCompromisoRow[];
   estados: EstadoOption[];
   eventoSlug: string;
+  sponsorId: string;
+  archivosPorCompromiso: Map<string, ArchivoPorSponsor>;
 }) {
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-white">
@@ -276,6 +284,7 @@ function BeneficioGroup({
               <TableHead>Beneficio</TableHead>
               <TableHead>Categoría</TableHead>
               <TableHead>Estado</TableHead>
+              <TableHead>Archivo</TableHead>
               <TableHead className="w-28 text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
@@ -303,6 +312,14 @@ function BeneficioGroup({
                     estados={estados}
                   />
                 </TableCell>
+                <TableCell>
+                  <UploadPorSponsor
+                    compromisoId={row.id}
+                    sponsorId={sponsorId}
+                    nombreBeneficio={row.tipo}
+                    archivoActual={archivosPorCompromiso.get(row.id) ?? null}
+                  />
+                </TableCell>
                 <TableCell className="text-right">
                   {canDeleteFromPanel(row) ? (
                     <DeleteCompromisoButton
@@ -328,12 +345,14 @@ export function BeneficiosSection({
   eventoId,
   eventoSlug,
   sponsorId,
+  archivosPorCompromiso,
 }: {
   compromisos: BeneficioCompromisoRow[];
   estados: EstadoOption[];
   eventoId: string;
   eventoSlug: string;
   sponsorId: string;
+  archivosPorCompromiso: Map<string, ArchivoPorSponsor>;
 }) {
   const contrato = compromisos.filter(
     (row) => row.tipo_beneficio === "Contrato",
@@ -382,6 +401,8 @@ export function BeneficiosSection({
             rows={contrato}
             estados={estados}
             eventoSlug={eventoSlug}
+            sponsorId={sponsorId}
+            archivosPorCompromiso={archivosPorCompromiso}
           />
           <BeneficioGroup
             title="Adicional / Upgrade / Tailor made"
@@ -389,6 +410,8 @@ export function BeneficiosSection({
             rows={personalizados}
             estados={estados}
             eventoSlug={eventoSlug}
+            sponsorId={sponsorId}
+            archivosPorCompromiso={archivosPorCompromiso}
           />
           {otros.length > 0 ? (
             <BeneficioGroup
@@ -397,6 +420,8 @@ export function BeneficiosSection({
               rows={otros}
               estados={estados}
               eventoSlug={eventoSlug}
+              sponsorId={sponsorId}
+              archivosPorCompromiso={archivosPorCompromiso}
             />
           ) : null}
         </div>
