@@ -11,7 +11,7 @@ import {
 } from "@/lib/notion/upsert-sponsor";
 
 /**
- * Cron Notion -> Postgres (fallback horario). Solo GovTech Summit 2026.
+ * Cron Notion -> Postgres (fallback diario 08:00 UTC). Solo GovTech Summit 2026.
  * Solo escribe nombre + paquete (mismo helper que el webhook).
  * Los compromisos los crea el trigger del catálogo.
  */
