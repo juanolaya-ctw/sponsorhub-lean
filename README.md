@@ -24,11 +24,11 @@ SponsorHub vive en su propio schema, `sponsorhub` — nunca crear tablas
 nuevas en `public` desde este repo, y nunca modificar tablas fuera de
 `sponsorhub`.
 
-**Paso manual obligatorio, fuera de cualquier migración SQL:** en el
-dashboard de Supabase, ir a Settings → API → Exposed schemas y agregar
-`sponsorhub` a la lista. Por defecto Supabase solo expone `public` a la
-API REST / cliente JS — sin este paso, la app no puede leer ni escribir
-nada aunque las tablas existan y la migración haya corrido bien.
+**Pasos manuales en el dashboard de Supabase:**
+1. Settings → API → Exposed schemas: agregar `sponsorhub`.
+2. SQL Editor: correr `supabase/migrations/0008_grant_schema_sponsorhub.sql`
+   (`GRANT USAGE` a `anon` / `authenticated` / `service_role`). Sin esto el
+   cron de sync falla con `permission denied for schema sponsorhub`.
 
 Se confirmó antes de esta decisión que el otro producto no usa Supabase
 Auth (sin colisión en `auth.users`) y que el proyecto tiene margen de
@@ -68,9 +68,24 @@ pnpm dev
 
 ## Integración con Notion
 
+Fase actual: **solo GovTech Summit 2026**. El CS Board / compromisos de
+CTW/CTF no se sincronizan.
+
 Necesitas una integración de Notion (https://www.notion.so/my-integrations)
-con acceso al `Customer Success Board` y a `Estado Compromisos Sponsors`.
-El token va en `NOTION_API_KEY`.
+con acceso a la database de sponsors de GovTech. Completa en `.env.local`
+(y en Vercel) `NOTION_API_KEY`, `CRON_SECRET` y `NOTION_GOVTECH_DATA_SOURCE_ID`.
+Luego marca el evento en Postgres:
+
+```sql
+UPDATE sponsorhub.eventos
+SET estado = 'activo',
+    notion_source_id = '<NOTION_GOVTECH_DATA_SOURCE_ID>'
+WHERE slug = 'govtech-2026';
+```
+
+El cron (`GET /api/sync/notion` con `Authorization: Bearer $CRON_SECRET`)
+upserta sponsors; los compromisos salen del catálogo GovTech vía trigger.
+El status de cada beneficio se gestiona en admin/portal, no se pisa desde Notion.
 
 ## Estructura
 
@@ -87,9 +102,10 @@ cada agente para evitar conflictos y estilos mezclados.
 
 ## Alcance actual (fase 1)
 
-- ✅ Evento: CTW/CTF 2026 (tiene datos reales en Notion)
-- ⏳ Evento: GovTech Summit 2026 (arquitectura lista, sin adaptador de
-  sync — no hay data de compromisos todavía, ver `docs/NOTION_MAPPING.md`)
+- ✅ Evento: GovTech Summit 2026 (sync de sponsors + catálogo local;
+  ver `docs/NOTION_MAPPING.md`)
+- ❌ Evento: CTW/CTF 2026 — fuera de esta fase (no se sincroniza)
 - ❌ SSO corporativo — backlog según el documento de CS
 - ❌ Notificaciones automáticas — CS decide manualmente qué notificar
-- ❌ Sync en tiempo real — es periódico (1-5 min), ver `docs/ARCHITECTURE.md`
+- ❌ Sync en tiempo real — es periódico (cron diario en Hobby), ver
+  `docs/ARCHITECTURE.md`

@@ -120,21 +120,46 @@ ha hecho" (esta tabla). Esa desconexión es precisamente lo que
 automática resuelven del lado de la app — no se replica este Kanban
 interno de CS en el esquema de SponsorHub.
 
-## GovTech — estado del adaptador de sync
+## GovTech — adaptador de sync (fase actual)
 
-GovTech SÍ tiene ahora un catálogo de beneficios estructurado (arriba),
-pero **todavía no tiene un adaptador de sync de sponsors individuales**
-equivalente al `Customer Success Board` de CTW/CTF — falta inventariar
-la database real de sponsors de GovTech (`CRM Sponsors — CTW + CTF` en
-el Home de GovTech parece ser, por nombre, una copia/referencia de
-CTW/CTF mal ubicada, no la fuente real de sponsors de GovTech; requiere
-verificación antes de construir su mapper).
+El cron `/api/sync/notion` **solo** procesa `eventos.slug = 'govtech-2026'`.
+No consulta el Customer Success Board de CTW/CTF ni corre
+`compromiso.mapper.ts`.
 
-Trabajo pendiente para conectar GovTech de punta a punta:
-1. Confirmar cuál es la database real de sponsors de GovTech (no la
-   mal-titulada que aparece en "Home Sponsors — GovTech").
-2. Escribir su allowlist de sponsor (puede diferir del de CTW/CTF).
-3. Escribir `catalogo.mapper.ts` contra el catálogo ya inventariado arriba.
-4. Registrar su `notion_source_id` en la tabla `eventos`.
-5. El resto del esquema (compromisos, archivos, accesos, evidencias,
-   estados_compromiso) no cambia — ya es genérico por diseño.
+### Database de sponsors GovTech
+
+El UUID se configura en `eventos.notion_source_id` (fallback:
+`NOTION_GOVTECH_DATA_SOURCE_ID`). El código no hardcodea un collection ID
+de CTW.
+
+Filtro de páginas: property `Estado` (select) en `Activo` o
+`Pendiente por Kick off`. Quien salga de esos valores **no se
+borra** de Postgres (el portal/usuario del sponsor se conserva).
+
+Allowlist ejecutable: `GOVTECH_SPONSOR_FIELD_ALLOWLIST` en
+`lib/notion/allowlist.ts`. Se extraen strings (title, rich_text, select,
+email, etc.) — nunca el objeto crudo de Notion. Columnas destino:
+
+| Campo Notion (nombres CS Board + alias comunes) | Columna Postgres |
+|---|---|
+| `Sponsor*` / `Sponsor` / `Nombre` | `nombre` |
+| `*Paquete` / `Paquete` | `paquete` |
+| `*Contacto` / `Contacto` | `contacto_nombre` |
+| `*Mail Principal` / `Mail Principal` / `Email` | `contacto_email` |
+| `*Teléfono` / `Teléfono` / `Telefono` | `contacto_telefono` |
+| `Cargo` | `contacto_cargo` |
+| `Link Logo` / `Logo` | `logo_url` |
+
+`notion_page_id` = id de la página. Speaker / entregables CTW **no** se
+escriben: esas columnas no existen en `sponsors`.
+
+Tras el upsert, el trigger `generar_compromisos_desde_catalogo` crea
+compromisos desde el catálogo GovTech ya seedado. El **status** de cada
+beneficio se gestiona en admin/portal, no se pisa desde Notion.
+
+Los valores de `paquete` deben coincidir texto por texto con el catálogo
+(`Associate Partner`, `Elite Partner`, `Deluxe Partner`); si no, queda
+alerta `tier_sin_match`.
+
+Pendiente (fuera de esta fase): `catalogo.mapper.ts` contra la database
+del catálogo; sync de status de beneficios; CTW/CTF.

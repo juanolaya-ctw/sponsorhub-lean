@@ -23,6 +23,35 @@ export const SPONSOR_FIELD_ALLOWLIST = {
   "Link Logo": "logo_url",
 } as const;
 
+/**
+ * Allowlist del sync GovTech. Nombres CS Board primero; alias comunes
+ * por si la DB GovTech usa labels distintos. El primero que tenga valor gana.
+ * No incluye speaker ni entregables: esas columnas no existen en `sponsors`.
+ */
+export const GOVTECH_SPONSOR_FIELD_ALLOWLIST = [
+  ["Sponsor*", "nombre"],
+  ["Sponsor", "nombre"],
+  ["Nombre", "nombre"],
+  ["Nombre de la empresa", "nombre"],
+  ["Empresa", "nombre"],
+  ["Company", "nombre"],
+  ["Cliente", "nombre"],
+  ["*Paquete", "paquete"],
+  ["Paquete", "paquete"],
+  ["Tier", "paquete"],
+  ["*Contacto", "contacto_nombre"],
+  ["Contacto", "contacto_nombre"],
+  ["*Mail Principal", "contacto_email"],
+  ["Mail Principal", "contacto_email"],
+  ["Email", "contacto_email"],
+  ["*Teléfono", "contacto_telefono"],
+  ["Teléfono", "contacto_telefono"],
+  ["Telefono", "contacto_telefono"],
+  ["Cargo", "contacto_cargo"],
+  ["Link Logo", "logo_url"],
+  ["Logo", "logo_url"],
+] as const satisfies ReadonlyArray<readonly [string, string]>;
+
 export const COMPROMISO_SOURCE_FIELDS = [
   "Actividad",      // multi-select de 13 valores -> se traduce a filas de `compromisos`
   "Estadoweb",       // multi-select -> se traduce a filas de `compromisos`

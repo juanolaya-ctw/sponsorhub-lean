@@ -1,30 +1,26 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  filterSponsorFields,
-  filterSpeakerFields,
-  filterEntregableFields,
-} from "@/lib/notion/allowlist";
+  GOVTECH_EVENT_SLUG,
+  tryNormalizeNotionId,
+} from "@/lib/notion/client";
+import { fetchSponsorsFromNotion } from "@/lib/notion/fetch-sponsors";
+import {
+  toNotionSyncFields,
+  upsertSponsorFromNotion,
+} from "@/lib/notion/upsert-sponsor";
 
 /**
- * Cron de sync Notion -> Postgres. Invocado por Vercel Cron cada 1-5 min
- * (ver vercel.json). NO se ejecuta en el request del sponsor — el
- * dashboard siempre lee de Postgres, nunca de Notion en vivo.
- *
- * Flujo por evento activo:
- *   1. Leer sponsors del CS Board de Notion (data_source_id en `eventos`)
- *   2. Filtrar por allowlist (lib/notion/allowlist.ts)
- *   3. Traducir compromisos (lib/notion/mappers/compromiso.mapper.ts)
- *   4. Upsert en Postgres, marcando updated_from_notion_at
- *
- * TODO (Claude Code): implementar el cliente de Notion real
- * (@notionhq/client) contra collection://2d299829-d217-8123-aab7-000bf1a05ee8
- * — este archivo es el contrato/esqueleto, no la implementación completa.
+ * Cron Notion -> Postgres (fallback horario). Solo GovTech Summit 2026.
+ * Solo escribe nombre + paquete (mismo helper que el webhook).
+ * Los compromisos los crea el trigger del catálogo.
  */
+export const maxDuration = 60;
 
 function assertCronSecret(request: Request) {
+  const secret = process.env.CRON_SECRET;
   const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!secret || authHeader !== `Bearer ${secret}`) {
     throw new Error("unauthorized");
   }
 }
@@ -36,60 +32,131 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  if (!process.env.NOTION_API_KEY) {
+    return NextResponse.json(
+      { error: "NOTION_API_KEY no está configurada." },
+      { status: 500 },
+    );
+  }
+
   const supabase = createAdminClient();
 
-  const { data: eventosActivos, error: eventosError } = await supabase
+  const { data: evento, error: eventoError } = await supabase
     .from("eventos")
-    .select("id, slug, notion_source_id")
-    .eq("estado", "activo")
-    .not("notion_source_id", "is", null);
+    .select("id, slug, notion_source_id, estado")
+    .eq("slug", GOVTECH_EVENT_SLUG)
+    .maybeSingle();
 
-  if (eventosError) {
-    return NextResponse.json({ error: eventosError.message }, { status: 500 });
+  if (eventoError) {
+    const permissionDenied = /permission denied/i.test(eventoError.message);
+    return NextResponse.json(
+      {
+        error: eventoError.message,
+        hint: permissionDenied
+          ? "Ejecuta supabase/migrations/0008_grant_schema_sponsorhub.sql en el SQL Editor de Supabase."
+          : undefined,
+      },
+      { status: 500 },
+    );
+  }
+  if (!evento) {
+    return NextResponse.json(
+      { error: `No existe el evento ${GOVTECH_EVENT_SLUG}.` },
+      { status: 404 },
+    );
+  }
+  if (evento.estado !== "activo") {
+    return NextResponse.json(
+      {
+        error: `El evento ${GOVTECH_EVENT_SLUG} no está activo (estado=${evento.estado}).`,
+      },
+      { status: 409 },
+    );
   }
 
-  const resultados: Array<{ evento: string; sponsorsSincronizados: number }> = [];
+  const fromDb = tryNormalizeNotionId(
+    (evento.notion_source_id as string | null) ?? null,
+  );
+  const fromEnv = tryNormalizeNotionId(
+    process.env.NOTION_GOVTECH_DATA_SOURCE_ID ?? null,
+  );
+  // El .env manda: si no, el cron seguiría pegándole al data_source_id viejo
+  // persistido en Postgres (p.ej. Acciones FU).
+  const dataSourceId = fromEnv ?? fromDb;
 
-  for (const evento of eventosActivos ?? []) {
-    // TODO: reemplazar por la llamada real a la API de Notion
-    // const notionRecords = await fetchSponsorsFromNotion(evento.notion_source_id);
-    const notionRecords: unknown[] = [];
+  if (!dataSourceId) {
+    return NextResponse.json(
+      {
+        error:
+          "Ni eventos.notion_source_id ni NOTION_GOVTECH_DATA_SOURCE_ID tienen un UUID de 32 hex. El ntn_… es el token (NOTION_API_KEY). El ID de la tabla sale de la URL de Notion o de Settings de la database (data_source_id).",
+      },
+      { status: 400 },
+    );
+  }
 
-    let count = 0;
-    for (const rawRecord of notionRecords) {
-      const sponsorFields = filterSponsorFields(rawRecord as Record<string, unknown>);
-      const speakerFields = filterSpeakerFields(rawRecord as Record<string, unknown>);
-      const entregableFields = filterEntregableFields(rawRecord as Record<string, unknown>);
+  if (dataSourceId !== evento.notion_source_id) {
+    const { error: persistError } = await supabase
+      .from("eventos")
+      .update({ notion_source_id: dataSourceId })
+      .eq("id", evento.id);
+    if (persistError) {
+      console.warn(
+        "[sync] No se pudo persistir notion_source_id:",
+        persistError.message,
+      );
+    }
+  }
 
-      const { data: sponsorRow, error: upsertError } = await supabase
-        .from("sponsors")
-        .upsert(
-          {
-            evento_id: evento.id,
-            ...sponsorFields,
-            ...speakerFields,
-            ...entregableFields,
-            updated_from_notion_at: new Date().toISOString(),
-          },
-          { onConflict: "evento_id,notion_page_id" }
-        )
-        .select("id")
-        .single();
+  let fetchResult;
+  try {
+    fetchResult = await fetchSponsorsFromNotion(dataSourceId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error consultando Notion.";
+    console.error("[sync] Notion:", message);
+    return NextResponse.json(
+      { error: message, dataSourceId },
+      { status: 502 },
+    );
+  }
 
-      if (upsertError || !sponsorRow) {
-        console.error(`[sync] Error upserting sponsor en ${evento.slug}:`, upsertError);
-        continue;
-      }
+  const { pages, totalInNotion, estadosVistos, aviso, muestraPropiedades } =
+    fetchResult;
 
-      // Compromisos: traducidos, no mapeados 1:1 (ver mapper)
-      // const compromisos = mapCompromisosFromNotion(rawRecord, sponsorRow.id);
-      // await supabase.from("compromisos").upsert(compromisos, { onConflict: "sponsor_id,tipo" });
+  const errores: string[] = [];
+  let sponsorsSincronizados = 0;
 
-      count++;
+  for (const page of pages) {
+    const fields = toNotionSyncFields(page, evento.id as string);
+    if ("error" in fields) {
+      console.warn(`[sync] ${fields.error}`);
+      errores.push(fields.error);
+      continue;
     }
 
-    resultados.push({ evento: evento.slug, sponsorsSincronizados: count });
+    const { error: upsertError } = await upsertSponsorFromNotion(
+      supabase,
+      fields,
+    );
+
+    if (upsertError) {
+      const detail = `Upsert ${fields.nombre}: ${upsertError}`;
+      console.error(`[sync] ${detail}`);
+      errores.push(detail);
+      continue;
+    }
+
+    sponsorsSincronizados++;
   }
 
-  return NextResponse.json({ ok: true, resultados });
+  return NextResponse.json({
+    ok: true,
+    evento: GOVTECH_EVENT_SLUG,
+    dataSourceId,
+    totalInNotion,
+    estadosVistos,
+    aviso,
+    muestraPropiedades,
+    sponsorsSincronizados,
+    errores,
+  });
 }
