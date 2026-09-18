@@ -47,14 +47,17 @@ async function resolvePendienteEstadoId(
  * - ON CONFLICT (sponsor_id, notion_page_id): actualiza tipo / tipo_beneficio /
  *   categoria_beneficio. NUNCA toca estado_id.
  * - Insert nuevos con estado Pendiente.
- * - Prune: borra compromisos govtech con notion_page_id que ya no están en LAB.
- *   Nunca borra notion_page_id IS NULL (creados en el panel).
+ * - Prune (default true): borra compromisos govtech con notion_page_id que ya
+ *   no están en `rows`. Nunca borra notion_page_id IS NULL (panel).
+ *   En webhook de una sola fila pasar `{ prune: false }`.
  */
 export async function upsertCompromisosFromLabBeneficios(
   supabase: AdminClient,
   eventoId: string,
   rows: LabBeneficioRow[],
+  options?: { prune?: boolean },
 ): Promise<UpsertCompromisosResult> {
+  const prune = options?.prune !== false;
   const errores: string[] = [];
   let compromisosSincronizados = 0;
 
@@ -182,27 +185,30 @@ export async function upsertCompromisosFromLabBeneficios(
 
   // Prune: LAB rows removed in Notion → delete synced compromisos.
   // Nunca tocar notion_page_id IS NULL (panel).
-  const toDeleteIds: string[] = [];
-  for (const [key, row] of existingByPair) {
-    if (!syncedPairs.has(key)) {
-      toDeleteIds.push(row.id);
+  // Webhook de una fila debe pasar prune: false.
+  if (prune) {
+    const toDeleteIds: string[] = [];
+    for (const [key, row] of existingByPair) {
+      if (!syncedPairs.has(key)) {
+        toDeleteIds.push(row.id);
+      }
     }
-  }
 
-  if (toDeleteIds.length > 0) {
-    const { error: deleteError } = await supabase
-      .from("compromisos")
-      .delete()
-      .in("id", toDeleteIds);
+    if (toDeleteIds.length > 0) {
+      const { error: deleteError } = await supabase
+        .from("compromisos")
+        .delete()
+        .in("id", toDeleteIds);
 
-    if (deleteError) {
-      const detail = `Prune compromisos huérfanos: ${deleteError.message}`;
-      console.error(`[lab-beneficios] ${detail}`);
-      errores.push(detail);
-    } else {
-      console.info(
-        `[lab-beneficios] Prune: ${toDeleteIds.length} compromiso(s) eliminados.`,
-      );
+      if (deleteError) {
+        const detail = `Prune compromisos huérfanos: ${deleteError.message}`;
+        console.error(`[lab-beneficios] ${detail}`);
+        errores.push(detail);
+      } else {
+        console.info(
+          `[lab-beneficios] Prune: ${toDeleteIds.length} compromiso(s) eliminados.`,
+        );
+      }
     }
   }
 

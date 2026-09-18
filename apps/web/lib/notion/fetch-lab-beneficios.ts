@@ -114,7 +114,8 @@ function isCategoriaBeneficio(
   );
 }
 
-function mapLabPage(
+/** Mapea una página LAB Beneficios (cron o webhook de una sola fila). */
+export function mapLabBeneficioPage(
   page: { id: string; properties: Record<string, unknown> },
 ): LabBeneficioRow | { skip: string } {
   const nombre = unwrapNotionProperty(
@@ -189,7 +190,7 @@ export async function fetchLabBeneficiosFromNotion(
   const skipped: string[] = [];
 
   for (const page of pages) {
-    const mapped = mapLabPage(page);
+    const mapped = mapLabBeneficioPage(page);
     if ("skip" in mapped) {
       skipped.push(mapped.skip);
       continue;
