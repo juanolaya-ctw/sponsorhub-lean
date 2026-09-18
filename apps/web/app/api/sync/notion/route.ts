@@ -4,7 +4,9 @@ import {
   GOVTECH_EVENT_SLUG,
   tryNormalizeNotionId,
 } from "@/lib/notion/client";
+import { fetchLabBeneficiosFromNotion } from "@/lib/notion/fetch-lab-beneficios";
 import { fetchSponsorsFromNotion } from "@/lib/notion/fetch-sponsors";
+import { upsertCompromisosFromLabBeneficios } from "@/lib/notion/upsert-compromisos";
 import {
   toNotionSyncFields,
   upsertSponsorFromNotion,
@@ -12,8 +14,9 @@ import {
 
 /**
  * Cron Notion -> Postgres (fallback diario 08:00 UTC). Solo GovTech Summit 2026.
- * Solo escribe nombre + paquete (mismo helper que el webhook).
- * Los compromisos los crea el trigger del catálogo.
+ * 1) Sponsors: nombre + paquete (mismo helper que el webhook).
+ * 2) Compromisos: sync desde LAB Beneficios (el trigger del catálogo
+ *    está deshabilitado para govtech-2026).
  */
 export const maxDuration = 60;
 
@@ -148,6 +151,41 @@ export async function GET(request: Request) {
     sponsorsSincronizados++;
   }
 
+  // --- LAB Beneficios → compromisos (solo GovTech; slug ya filtrado) ---
+  let compromisosSincronizados = 0;
+  const labBeneficiosId = tryNormalizeNotionId(
+    process.env.NOTION_LAB_BENEFICIOS_ID ?? null,
+  );
+
+  if (!labBeneficiosId) {
+    const detail =
+      "NOTION_LAB_BENEFICIOS_ID no está configurada o no es un UUID válido. Los compromisos no se sincronizaron.";
+    console.warn(`[sync] ${detail}`);
+    errores.push(detail);
+  } else {
+    try {
+      const labResult = await fetchLabBeneficiosFromNotion(labBeneficiosId);
+      for (const skip of labResult.skipped) {
+        console.warn(`[sync] ${skip}`);
+      }
+
+      const upsertResult = await upsertCompromisosFromLabBeneficios(
+        supabase,
+        evento.id as string,
+        labResult.rows,
+      );
+      compromisosSincronizados = upsertResult.compromisosSincronizados;
+      errores.push(...upsertResult.errores);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Error sincronizando LAB Beneficios.";
+      console.error("[sync] LAB Beneficios:", message);
+      errores.push(`LAB Beneficios: ${message}`);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     evento: GOVTECH_EVENT_SLUG,
@@ -157,6 +195,7 @@ export async function GET(request: Request) {
     aviso,
     muestraPropiedades,
     sponsorsSincronizados,
+    compromisosSincronizados,
     errores,
   });
 }

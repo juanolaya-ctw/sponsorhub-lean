@@ -8,10 +8,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getEventoBySlug } from "@/lib/admin/eventos";
+import { GOVTECH_EVENT_SLUG } from "@/lib/notion/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { INSUMOS_REQUERIDOS } from "@/lib/portal/insumos";
 import { ArchivoActions } from "./archivo-actions";
 import { EntregablesCtSection } from "./entregables-ct";
+import {
+  BeneficiosSection,
+  type BeneficioCompromisoRow,
+} from "./beneficios-section";
 import {
   CommitmentsTable,
   type CompromisoRow,
@@ -118,7 +123,7 @@ export default async function SponsorDetallePage({
     supabase
       .from("compromisos")
       .select(
-        "id, tipo, fecha_limite, estado_id, sponsors(nombre), catalogo_beneficios(beneficio)",
+        "id, tipo, tipo_beneficio, categoria_beneficio, notion_page_id, fecha_limite, estado_id, sponsors(nombre), catalogo_beneficios(beneficio)",
       )
       .eq("sponsor_id", sponsor.id)
       .order("fecha_limite"),
@@ -152,7 +157,10 @@ export default async function SponsorDetallePage({
   const archivos = (archivosData ?? []) as ArchivoSponsor[];
   const entregas = (entregasResult.data ?? []) as ArchivoSponsor[];
   const compromisos = (compromisosResult.data ?? []) as unknown as CompromisoRow[];
+  const beneficiosGovtech = (compromisosResult.data ??
+    []) as unknown as BeneficioCompromisoRow[];
   const estados = (estadosResult.data ?? []) as EstadoOption[];
+  const isGovtech = evento.slug === GOVTECH_EVENT_SLUG;
   const accesos = (accesosResult.data ?? []) as AccesoPersonaAdmin[];
   const tiers = Array.from(
     new Set((tiersResult.data ?? []).map((item) => item.tier)),
@@ -423,26 +431,36 @@ export default async function SponsorDetallePage({
         )}
       </section>
 
-      <section>
-        <h2 className="text-lg font-semibold">Compromisos</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Beneficios, estados y fechas límite de este sponsor.
-        </p>
-        {compromisos.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-12 text-center">
-            <p className="font-medium">Este sponsor no tiene compromisos</p>
-          </div>
-        ) : (
-          <div className="mt-4">
-            <CommitmentsTable
-              compromisos={compromisos}
-              estados={estados}
-              eventoSlug={evento.slug}
-              showSponsor={false}
-            />
-          </div>
-        )}
-      </section>
+      {isGovtech ? (
+        <BeneficiosSection
+          compromisos={beneficiosGovtech}
+          estados={estados}
+          eventoId={evento.id}
+          eventoSlug={evento.slug}
+          sponsorId={sponsor.id}
+        />
+      ) : (
+        <section>
+          <h2 className="text-lg font-semibold">Compromisos</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Beneficios, estados y fechas límite de este sponsor.
+          </p>
+          {compromisos.length === 0 ? (
+            <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-12 text-center">
+              <p className="font-medium">Este sponsor no tiene compromisos</p>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <CommitmentsTable
+                compromisos={compromisos}
+                estados={estados}
+                eventoSlug={evento.slug}
+                showSponsor={false}
+              />
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

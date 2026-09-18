@@ -73,7 +73,8 @@ CTW/CTF no se sincronizan.
 
 Necesitas una integración de Notion (https://www.notion.so/my-integrations)
 con acceso a la database de sponsors de GovTech. Completa en `.env.local`
-(y en Vercel) `NOTION_API_KEY`, `CRON_SECRET` y `NOTION_GOVTECH_DATA_SOURCE_ID`.
+(y en Vercel) `NOTION_API_KEY`, `CRON_SECRET`, `NOTION_GOVTECH_DATA_SOURCE_ID`
+y `NOTION_LAB_BENEFICIOS_ID`.
 Luego marca el evento en Postgres:
 
 ```sql
@@ -84,7 +85,7 @@ WHERE slug = 'govtech-2026';
 ```
 
 El cron (`GET /api/sync/notion` con `Authorization: Bearer $CRON_SECRET`)
-upserta sponsors; los compromisos salen del catálogo GovTech vía trigger.
+upserta sponsors y, para GovTech, sincroniza compromisos desde LAB Beneficios.
 El status de cada beneficio se gestiona en admin/portal, no se pisa desde Notion.
 
 ## Estructura

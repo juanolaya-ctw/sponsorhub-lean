@@ -8,6 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getEventoBySlug } from "@/lib/admin/eventos";
+import { GOVTECH_EVENT_SLUG } from "@/lib/notion/client";
 import { TierSelect } from "../sponsors/tier-select";
 import { AddBeneficioForm } from "./add-beneficio-form";
 import { DeleteBeneficioButton } from "./delete-beneficio-button";
@@ -61,15 +62,26 @@ export default async function CompromisosPage({
     return groups;
   }, new Map<string, Beneficio[]>());
   const tiers = Array.from(porTier.keys());
+  const isGovtech = evento.slug === GOVTECH_EVENT_SLUG;
 
   return (
     <div className="space-y-10">
       <div>
         <h1 className="text-xl font-semibold">Compromisos</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Configura los beneficios por tier y asigna el tier de cada sponsor.
+          {isGovtech
+            ? "Catálogo de referencia por tier. Los compromisos reales vienen de LAB Beneficios."
+            : "Configura los beneficios por tier y asigna el tier de cada sponsor."}
         </p>
       </div>
+
+      {isGovtech ? (
+        <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          En GovTech, el catálogo es solo referencia visual. Los beneficios
+          operativos se sincronizan desde LAB Beneficios y se gestionan en el
+          detalle de cada sponsor.
+        </div>
+      ) : null}
 
       <section>
         <h2 className="text-lg font-semibold">Beneficios por tier</h2>

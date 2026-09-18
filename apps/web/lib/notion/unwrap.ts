@@ -97,6 +97,21 @@ export function unwrapNotionProperty(property: unknown): string | null {
   }
 }
 
+/**
+ * Extrae los page IDs de una property `relation` de Notion.
+ * No mezclar con unwrapNotionProperty (ese sigue devolviendo string | null).
+ */
+export function unwrapRelationIds(property: unknown): string[] {
+  if (property == null || typeof property !== "object") return [];
+  const value = property as Record<string, unknown> & { type?: string };
+  if (value.type !== "relation") return [];
+  const relation = value.relation as Array<{ id?: string }> | undefined;
+  if (!Array.isArray(relation)) return [];
+  return relation
+    .map((item) => item.id?.trim())
+    .filter((id): id is string => Boolean(id));
+}
+
 export function getProperty(
   properties: Record<string, unknown>,
   name: string,

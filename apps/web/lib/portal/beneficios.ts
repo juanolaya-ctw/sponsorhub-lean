@@ -100,6 +100,8 @@ type EstadoJoin = {
 type CompromisoRow = {
   id: string;
   tipo: string;
+  tipo_beneficio: string | null;
+  categoria_beneficio: string | null;
   catalogo_beneficios: CatalogoJoin | CatalogoJoin[] | null;
   estados_compromiso: EstadoJoin | EstadoJoin[] | null;
 };
@@ -107,6 +109,21 @@ type CompromisoRow = {
 function one<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
+}
+
+/**
+ * Heurística de formulario: primero categoría del catálogo (CTW/CTF),
+ * si no hay join usa el nombre del beneficio (LAB / panel).
+ */
+function resolverTipoFormulario(
+  catalogoCategoria: string | null | undefined,
+  beneficioNombre: string,
+): TipoFormulario {
+  if (catalogoCategoria) {
+    const fromCatalogo = tipoFormulario(catalogoCategoria);
+    if (fromCatalogo !== "informativo") return fromCatalogo;
+  }
+  return tipoFormulario(beneficioNombre);
 }
 
 export function iconoCategoria(categoria: string): string {
@@ -308,22 +325,26 @@ function mapCompromiso(
 ): BeneficioPortal {
   const catalogo = one(row.catalogo_beneficios);
   const estado = one(row.estados_compromiso);
-  const categoria = catalogo?.categoria ?? "Otros";
-  const tipo = tipoFormulario(categoria);
+  const beneficio = catalogo?.beneficio ?? row.tipo;
+  // Display: catálogo (Branding / Logo…) → LAB timing (Pre/Durante/Post) → Otros
+  const categoria =
+    catalogo?.categoria ?? row.categoria_beneficio ?? "Otros";
+  const tipo = resolverTipoFormulario(catalogo?.categoria, beneficio);
+  const cantidad = catalogo?.cantidad ?? null;
   const archivosDel = archivos.filter((item) => item.compromiso_id === row.id);
   const personasDel = personas.filter((item) => item.compromiso_id === row.id);
 
   return {
     compromisoId: row.id,
-    beneficio: catalogo?.beneficio ?? row.tipo,
+    beneficio,
     categoria,
-    cantidad: catalogo?.cantidad ?? null,
+    cantidad,
     detalleSolicitud: catalogo?.detalle_solicitud ?? null,
     notas: catalogo?.notas ?? null,
     estadoNombre: estado?.nombre ?? null,
     estadoColor: estado?.color ?? null,
     tipo,
-    progreso: progresoBeneficio(tipo, catalogo?.cantidad ?? null, archivosDel, personasDel),
+    progreso: progresoBeneficio(tipo, cantidad, archivosDel, personasDel),
     archivos: archivosDel,
     personas: personasDel,
     logoCargado: false,
@@ -389,7 +410,7 @@ export async function loadPortalBeneficios(
     supabase
       .from("compromisos")
       .select(
-        "id, tipo, catalogo_beneficios(beneficio, categoria, cantidad, detalle_solicitud, notas, orden), estados_compromiso(nombre, color)",
+        "id, tipo, tipo_beneficio, categoria_beneficio, catalogo_beneficios(beneficio, categoria, cantidad, detalle_solicitud, notas, orden), estados_compromiso(nombre, color)",
       )
       .eq("sponsor_id", sponsorId),
     supabase

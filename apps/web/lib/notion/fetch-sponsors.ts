@@ -167,7 +167,11 @@ async function loadDataSource(
   return { id: source.id ?? dataSourceId, properties: source.properties };
 }
 
-async function resolveDataSource(
+/**
+ * Resuelve un UUID de Notion (data_source, database o page) al data_source
+ * queryable. Reutilizado por fetch de sponsors y LAB Beneficios.
+ */
+export async function resolveDataSource(
   rawId: string,
 ): Promise<{ id: string; properties: Record<string, DatabaseProperty> }> {
   const notion = getNotion2025Client();
