@@ -184,9 +184,17 @@ async function handleLabBeneficioPage(
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as NotionWebhookBody;
+    console.log("webhook body:", JSON.stringify(body));
 
     if (body.verification_token) {
-      return NextResponse.json({ ok: true });
+      console.log(
+        "[webhook/notion] verification_token:",
+        body.verification_token,
+      );
+      return NextResponse.json({
+        ok: true,
+        verification_token: body.verification_token,
+      });
     }
 
     const entity = body.entity;
