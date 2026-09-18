@@ -4,6 +4,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BrandLogo } from "@/components/BrandLogo";
 import {
+  DEACTIVATED_ACCOUNT_MESSAGE,
+  DEACTIVATED_ACCOUNT_QUERY,
   homeForRole,
   NO_ACCESS_MESSAGE,
   NO_ACCESS_QUERY,
@@ -21,8 +23,11 @@ export default function LoginPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("error") === NO_ACCESS_QUERY) {
+    const errorParam = params.get("error");
+    if (errorParam === NO_ACCESS_QUERY) {
       setError(NO_ACCESS_MESSAGE);
+    } else if (errorParam === DEACTIVATED_ACCOUNT_QUERY) {
+      setError(DEACTIVATED_ACCOUNT_MESSAGE);
     }
   }, []);
 
@@ -51,6 +56,21 @@ export default function LoginPage() {
       setLoading(false);
       setError(NO_ACCESS_MESSAGE);
       return;
+    }
+
+    if (rol === "sponsor") {
+      const { data: profile } = await supabase
+        .from("sponsor_usuarios")
+        .select("activo")
+        .eq("id", data.user.id)
+        .maybeSingle();
+
+      if (profile && profile.activo === false) {
+        await supabase.auth.signOut();
+        setLoading(false);
+        setError(DEACTIVATED_ACCOUNT_MESSAGE);
+        return;
+      }
     }
 
     router.replace(homeForRole(rol));

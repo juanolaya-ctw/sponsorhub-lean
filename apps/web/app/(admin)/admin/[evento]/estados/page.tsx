@@ -1,5 +1,6 @@
 import { CreateEstadoForm } from "./create-estado-form";
 import { EditEstadoRow } from "./edit-estado-row";
+import { EstadosBackButton } from "./estados-back-button";
 import { getEventoBySlug } from "@/lib/admin/eventos";
 
 type EstadoRow = {
@@ -30,10 +31,12 @@ export default async function EstadosPage({
   }
 
   const estados = (data ?? []) as EstadoRow[];
+  const fallbackHref = `/admin/${evento.slug}/sponsors`;
 
   return (
     <div className="space-y-6">
       <div>
+        <EstadosBackButton fallbackHref={fallbackHref} />
         <h1 className="text-xl font-semibold">Estados de compromiso</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Growth puede crear y quitar estados sin una migración de código.

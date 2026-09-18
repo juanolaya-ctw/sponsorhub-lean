@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BrandLogo } from "@/components/BrandLogo";
+import { AdminConfigLink } from "@/components/admin/AdminConfigLink";
 import { SignOutButton } from "@/components/layout/SignOutButton";
 import { requireAdmin } from "@/lib/auth/require-admin";
 
@@ -16,7 +17,8 @@ export default async function AdminLayout({
         <Link href="/admin/selector-evento" className="flex items-center">
           <BrandLogo />
         </Link>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <AdminConfigLink />
           <span className="text-sm text-muted-foreground">{user.email}</span>
           <SignOutButton />
         </div>

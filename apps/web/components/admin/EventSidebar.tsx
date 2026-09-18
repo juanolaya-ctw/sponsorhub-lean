@@ -2,14 +2,25 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  Bell,
+  Building2,
+  ClipboardList,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const LINKS = [
-  { href: "sponsors", label: "Sponsors" },
-  { href: "compromisos", label: "Compromisos" },
-  { href: "estados", label: "Estados" },
-  { href: "alertas", label: "Alertas" },
-] as const;
+const LINKS: Array<{
+  href: string;
+  label: string;
+  icon: LucideIcon;
+}> = [
+  { href: "sponsors", label: "Sponsors", icon: Building2 },
+  { href: "compromisos", label: "Compromisos", icon: ClipboardList },
+  { href: "usuarios", label: "Usuarios", icon: Users },
+  { href: "alertas", label: "Alertas", icon: Bell },
+];
 
 export function EventSidebar({
   slug,
@@ -36,17 +47,19 @@ export function EventSidebar({
         {LINKS.map((link) => {
           const href = `${base}/${link.href}`;
           const active = pathname === href || pathname.startsWith(`${href}/`);
+          const Icon = link.icon;
           return (
             <Link
               key={link.href}
               href={href}
               className={cn(
-                "rounded-md px-3 py-2 text-sm transition-colors",
+                "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
                 active
                   ? "bg-muted font-medium text-foreground"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
               )}
             >
+              <Icon className="size-4 shrink-0" aria-hidden />
               {link.label}
             </Link>
           );

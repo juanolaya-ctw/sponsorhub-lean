@@ -10,6 +10,9 @@ export const LOGIN_PATH = "/login";
 export const NO_ACCESS_QUERY = "no_access";
 export const NO_ACCESS_MESSAGE =
   "Tu cuenta no tiene acceso configurado. Contacta al equipo de CT.";
+export const DEACTIVATED_ACCOUNT_QUERY = "cuenta-desactivada";
+export const DEACTIVATED_ACCOUNT_MESSAGE =
+  "Tu cuenta ha sido desactivada. Contacta al equipo de Colombia Tech.";
 
 export function isUserRole(value: unknown): value is UserRole {
   return value === "admin_ct" || value === "sponsor";
