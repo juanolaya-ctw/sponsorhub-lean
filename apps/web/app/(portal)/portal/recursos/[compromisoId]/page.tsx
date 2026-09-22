@@ -10,14 +10,17 @@ import {
   isLogoTipo,
   isStoredObject,
   loadPortalBeneficio,
+  parseLinkedInInstagram,
   parseNewsletter,
   TIPO_DECK_ADDONS,
+  TIPO_LINKEDIN_INSTAGRAM,
   TIPO_NEWSLETTER,
   TIPO_SPEAKER_FORM,
 } from "@/lib/portal/beneficios";
 import { AccesosForm } from "./accesos-form";
 import { AddonDeck } from "./addon-deck";
 import { BrandingForm } from "./branding-form";
+import { LinkedInInstagramForm } from "./linkedin-instagram-form";
 import { NewsletterForm } from "./newsletter-form";
 import { SpeakerForm } from "./speaker-form";
 import { CargadoBadge } from "../cargado-badge";
@@ -117,6 +120,13 @@ export default async function BeneficioDetallePage({
     ? parseNewsletter(newsletterArchivo.nombre_archivo)
     : null;
 
+  const linkedInArchivo =
+    archivosConUrl.find((item) => item.tipo === TIPO_LINKEDIN_INSTAGRAM) ??
+    null;
+  const linkedInInitial = linkedInArchivo
+    ? parseLinkedInInstagram(linkedInArchivo.nombre_archivo)
+    : null;
+
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-6 py-10">
       <div>
@@ -207,6 +217,25 @@ export default async function BeneficioDetallePage({
                     viewUrl: null,
                   }
                 : null
+          }
+        />
+      ) : null}
+
+      {beneficio.tipo === "linkedin_instagram" ? (
+        <LinkedInInstagramForm
+          sponsorId={sponsor.sponsorId}
+          userId={user.id}
+          compromisoId={beneficio.compromisoId}
+          detalleSolicitud={beneficio.detalleSolicitud}
+          initial={linkedInInitial}
+          archivo={
+            linkedInArchivo
+              ? {
+                  id: linkedInArchivo.id,
+                  nombre: linkedInArchivo.nombre_archivo,
+                  storagePath: linkedInArchivo.storage_path,
+                }
+              : null
           }
         />
       ) : null}

@@ -5,6 +5,7 @@ export const ARCHIVOS_BUCKET = "sponsorhub-archivos";
 export const TIPO_LOGO = "logo_ai";
 export const TIPO_LOGO_LEGACY = "logo";
 export const TIPO_NEWSLETTER = "newsletter";
+export const TIPO_LINKEDIN_INSTAGRAM = "linkedin_instagram";
 export const TIPO_SPEAKER_FORM = "speaker_form_completado";
 export const TIPO_DECK_ADDONS = "Deck Add-ons";
 
@@ -21,6 +22,7 @@ export type TipoFormulario =
   | "branding"
   | "accesos"
   | "newsletter"
+  | "linkedin_instagram"
   | "speaker"
   | "addon"
   | "informativo";
@@ -29,6 +31,13 @@ export type NewsletterPayload = {
   titulo: string;
   cuerpo: string;
   cta: string;
+};
+
+export type LinkedInInstagramPayload = {
+  dato_impactante: string;
+  parrafo1: string;
+  parrafo2: string;
+  parrafo3: string;
 };
 
 export type ArchivoPortal = {
@@ -156,6 +165,9 @@ export function tipoFormulario(categoria: string): TipoFormulario {
     return "speaker";
   }
   if (value.includes("descuento") || value.includes("add-on")) return "addon";
+  if (/linkedin|instagram|contenido/i.test(categoria)) {
+    return "linkedin_instagram";
+  }
   return "informativo";
 }
 
@@ -185,7 +197,9 @@ export function safeFilename(name: string) {
 }
 
 export function isStoredObject(path: string) {
-  return !/^(?:texto|https?:|speaker_form_completado)/i.test(path);
+  return !/^(?:texto|https?:|speaker_form_completado|linkedin_instagram)/i.test(
+    path,
+  );
 }
 
 export function isImageName(name: string) {
@@ -226,6 +240,39 @@ export function newsletterCompleto(
     payload.cuerpo.trim().length > 0 &&
     payload.cta.trim().length > 0 &&
     Boolean(storagePath && isStoredObject(storagePath))
+  );
+}
+
+export function parseLinkedInInstagram(
+  nombreArchivo: string,
+): LinkedInInstagramPayload | null {
+  try {
+    const parsed = JSON.parse(nombreArchivo) as Partial<LinkedInInstagramPayload>;
+    if (parsed && typeof parsed.dato_impactante === "string") {
+      return {
+        dato_impactante: parsed.dato_impactante,
+        parrafo1: typeof parsed.parrafo1 === "string" ? parsed.parrafo1 : "",
+        parrafo2: typeof parsed.parrafo2 === "string" ? parsed.parrafo2 : "",
+        parrafo3: typeof parsed.parrafo3 === "string" ? parsed.parrafo3 : "",
+      };
+    }
+  } catch {
+    // Contenido legado que no es JSON.
+  }
+  return null;
+}
+
+export function linkedInInstagramCompleto(
+  payload: LinkedInInstagramPayload | null,
+): boolean {
+  if (!payload) return false;
+  return (
+    payload.dato_impactante.trim().length > 0 &&
+    payload.parrafo1.trim().length > 0 &&
+    payload.parrafo2.trim().length > 0 &&
+    countWords(payload.parrafo1) <= 80 &&
+    countWords(payload.parrafo2) <= 80 &&
+    countWords(payload.parrafo3) <= 80
   );
 }
 
@@ -299,6 +346,23 @@ export function progresoBeneficio(
         row ? parseNewsletter(row.nombre_archivo) : null,
         row?.storage_path ?? null,
       ) || Boolean(row && isStoredObject(row.storage_path));
+    return {
+      current: completed ? 1 : 0,
+      total: 1,
+      pct: completed ? 100 : 0,
+      completed,
+      label: completed ? "Contenido guardado" : "Pendiente",
+      multiple: false,
+    };
+  }
+
+  if (tipo === "linkedin_instagram") {
+    const row =
+      archivos.find((item) => item.tipo === TIPO_LINKEDIN_INSTAGRAM) ??
+      archivos[0];
+    const completed = linkedInInstagramCompleto(
+      row ? parseLinkedInInstagram(row.nombre_archivo) : null,
+    );
     return {
       current: completed ? 1 : 0,
       total: 1,
