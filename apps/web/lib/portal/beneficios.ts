@@ -84,6 +84,7 @@ export type BeneficioPortal = {
   notas: string | null;
   estadoNombre: string | null;
   estadoColor: string | null;
+  estadoEsFinal: boolean;
   tipo: TipoFormulario;
   progreso: ProgresoBeneficio;
   archivos: ArchivoPortal[];
@@ -104,6 +105,7 @@ type CatalogoJoin = {
 type EstadoJoin = {
   nombre: string;
   color: string | null;
+  es_estado_final: boolean;
 };
 
 type CompromisoRow = {
@@ -417,6 +419,7 @@ function mapCompromiso(
     notas: catalogo?.notas ?? null,
     estadoNombre: estado?.nombre ?? null,
     estadoColor: estado?.color ?? null,
+    estadoEsFinal: Boolean(estado?.es_estado_final),
     tipo,
     progreso: progresoBeneficio(tipo, cantidad, archivosDel, personasDel),
     archivos: archivosDel,
@@ -476,6 +479,14 @@ export function resumenProgreso(beneficios: BeneficioPortal[]) {
   };
 }
 
+/** Completo para la barra de insumos del admin (todos los beneficios). */
+export function isBeneficioInsumoCompleto(item: BeneficioPortal): boolean {
+  if (item.tipo === "branding" && item.logoCargado) return true;
+  if (requiereAccion(item.tipo)) return item.progreso.completed;
+  // Informativo / addon: se considera hecho cuando el estado es final en el panel.
+  return item.estadoEsFinal;
+}
+
 export async function loadPortalBeneficios(
   supabase: SupabaseClient,
   sponsorId: string,
@@ -484,7 +495,7 @@ export async function loadPortalBeneficios(
     supabase
       .from("compromisos")
       .select(
-        "id, tipo, tipo_beneficio, categoria_beneficio, catalogo_beneficios(beneficio, categoria, cantidad, detalle_solicitud, notas, orden), estados_compromiso(nombre, color)",
+        "id, tipo, tipo_beneficio, categoria_beneficio, catalogo_beneficios(beneficio, categoria, cantidad, detalle_solicitud, notas, orden), estados_compromiso(nombre, color, es_estado_final)",
       )
       .eq("sponsor_id", sponsorId),
     supabase

@@ -1,7 +1,8 @@
-// Lista fija de insumos que el sponsor debe entregar, según el documento de
-// Customer Success. NO depende del tier: son los mismos para todos los
-// sponsors. El valor `key` se guarda en `archivos.tipo` para poder marcar
-// cada insumo como "Subido" sin cambiar el esquema.
+// Lista de referencia de tipos de archivo (labels / aliases).
+// La barra de "Insumos faltantes" del admin YA NO usa esta lista fija:
+// se deriva de los beneficios/compromisos del sponsor (Notion LAB + panel).
+// Estos keys siguen usándose al guardar `archivos.tipo` y para etiquetar
+// la tabla de archivos subidos.
 //
 // `tipo` define cómo se captura el insumo en el portal:
 //   - "archivo":    subida de archivo al bucket de Storage.

@@ -15,7 +15,12 @@ import {
   insumoKeyFromTipo,
   labelInsumoFromTipo,
 } from "@/lib/portal/insumos";
-import { isStoredObject } from "@/lib/portal/beneficios";
+import {
+  isBeneficioInsumoCompleto,
+  isStoredObject,
+  loadPortalBeneficios,
+  requiereAccion,
+} from "@/lib/portal/beneficios";
 import { ArchivoActions } from "./archivo-actions";
 import { EntregablesCtSection } from "./entregables-ct";
 import {
@@ -249,11 +254,18 @@ export default async function SponsorDetallePage({
       };
     }),
   );
-  const tiposSubidos = new Set(
-    archivos
-      .map((archivo) => insumoKeyFromTipo(archivo.tipo))
-      .filter((key): key is string => key != null),
+  // Misma fuente que la tabla Beneficios: todos los compromisos del sponsor.
+  // Los que requieren formulario del portal se completan con archivos/personas;
+  // informativos/addons, con estado final en el panel.
+  const beneficiosPortal = await loadPortalBeneficios(supabase, sponsor.id);
+  const insumosFaltantes = beneficiosPortal.filter(
+    (item) => !isBeneficioInsumoCompleto(item),
   );
+  const totalInsumos = beneficiosPortal.length;
+  const completados = totalInsumos - insumosFaltantes.length;
+  const progreso =
+    totalInsumos === 0 ? 100 : Math.round((completados / totalInsumos) * 100);
+
   const entregasConUrl = await Promise.all(
     entregas.map(async (archivo) => {
       const [viewResult, downloadResult] = await Promise.all([
@@ -277,14 +289,6 @@ export default async function SponsorDetallePage({
       };
     }),
   );
-  const insumosFaltantes = INSUMOS_REQUERIDOS.filter(
-    (insumo) => !tiposSubidos.has(insumo.key),
-  );
-  const completados = INSUMOS_REQUERIDOS.length - insumosFaltantes.length;
-  const progreso =
-    INSUMOS_REQUERIDOS.length === 0
-      ? 100
-      : Math.round((completados / INSUMOS_REQUERIDOS.length) * 100);
 
   return (
     <div className="space-y-8">
@@ -325,14 +329,15 @@ export default async function SponsorDetallePage({
       <section>
         <h2 className="text-lg font-semibold">Insumos del sponsor</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Archivos y contenidos que el sponsor subió al portal.
+          Pendientes según los beneficios sincronizados de Notion (y los
+          archivos que el sponsor ya subió al portal).
         </p>
 
         <div className="mt-4 rounded-xl border border-border bg-white p-4">
           <div className="flex items-center justify-between gap-4 text-sm">
             <span className="font-medium">Información completada</span>
             <span className="text-muted-foreground">
-              {completados}/{INSUMOS_REQUERIDOS.length} · {progreso}%
+              {completados}/{totalInsumos} · {progreso}%
             </span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
@@ -342,16 +347,31 @@ export default async function SponsorDetallePage({
             />
           </div>
 
-          {insumosFaltantes.length > 0 ? (
+          {totalInsumos === 0 ? (
+            <p className="mt-4 text-sm text-muted-foreground">
+              Este sponsor no tiene beneficios sincronizados.
+            </p>
+          ) : insumosFaltantes.length > 0 ? (
             <div className="mt-4">
               <p className="text-sm font-medium">Insumos faltantes</p>
               <ul className="mt-2 grid gap-2 sm:grid-cols-2">
                 {insumosFaltantes.map((insumo) => (
                   <li
-                    key={insumo.key}
+                    key={insumo.compromisoId}
                     className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm"
                   >
-                    <span>{insumo.nombre}</span>
+                    <span className="min-w-0">
+                      <span className="font-medium">{insumo.beneficio}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        {insumo.categoria}
+                        {" · "}
+                        {requiereAccion(insumo.tipo)
+                          ? insumo.progreso.label
+                          : insumo.estadoNombre
+                            ? `Estado: ${insumo.estadoNombre}`
+                            : "Sin estado final"}
+                      </span>
+                    </span>
                     <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                       Pendiente
                     </span>
@@ -359,7 +379,11 @@ export default async function SponsorDetallePage({
                 ))}
               </ul>
             </div>
-          ) : null}
+          ) : (
+            <p className="mt-4 text-sm text-[#16a34a]">
+              Todos los insumos requeridos están completos.
+            </p>
+          )}
         </div>
 
         {archivosConUrl.length === 0 ? (
