@@ -64,3 +64,28 @@ export const INSUMOS_REQUERIDOS: InsumoRequerido[] = [
     tipo: "texto",
   },
 ];
+
+/**
+ * Mapea `archivos.tipo` (portal beneficios / uploads admin) al key de
+ * INSUMOS_REQUERIDOS. Sin renombrar los TIPO_* del portal.
+ */
+const INSUMO_TIPO_ALIASES: Record<string, string> = {
+  logo_ai: "logo_ai",
+  logo: "logo_ai",
+  info_newsletter: "info_newsletter",
+  newsletter: "info_newsletter",
+  info_redes: "info_redes",
+  linkedin_instagram: "info_redes",
+  ppt_keynote: "ppt_keynote",
+  manual_marca: "manual_marca",
+  punto_contacto: "punto_contacto",
+};
+
+export function insumoKeyFromTipo(tipo: string): string | null {
+  return INSUMO_TIPO_ALIASES[tipo] ?? null;
+}
+
+export function labelInsumoFromTipo(tipo: string): string {
+  const key = insumoKeyFromTipo(tipo) ?? tipo;
+  return INSUMOS_REQUERIDOS.find((item) => item.key === key)?.nombre ?? tipo;
+}

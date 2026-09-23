@@ -10,7 +10,12 @@ import {
 import { getEventoBySlug } from "@/lib/admin/eventos";
 import { GOVTECH_EVENT_SLUG } from "@/lib/notion/client";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { INSUMOS_REQUERIDOS } from "@/lib/portal/insumos";
+import {
+  INSUMOS_REQUERIDOS,
+  insumoKeyFromTipo,
+  labelInsumoFromTipo,
+} from "@/lib/portal/insumos";
+import { isStoredObject } from "@/lib/portal/beneficios";
 import { ArchivoActions } from "./archivo-actions";
 import { EntregablesCtSection } from "./entregables-ct";
 import {
@@ -66,9 +71,6 @@ type AccesoPersonaAdmin = {
 const INSUMO_LABEL = new Map(
   INSUMOS_REQUERIDOS.map((insumo) => [insumo.key, insumo.nombre]),
 );
-const INSUMO_CONFIG = new Map(
-  INSUMOS_REQUERIDOS.map((insumo) => [insumo.key, insumo]),
-);
 
 function formatDateTime(value: string): string {
   const date = new Date(value);
@@ -80,10 +82,15 @@ function formatDateTime(value: string): string {
 }
 
 function isRealFile(archivo: ArchivoSponsor): boolean {
-  return (
-    INSUMO_CONFIG.get(archivo.tipo)?.tipo === "archivo" &&
-    !/^(?:texto|https?:)/i.test(archivo.storage_path)
-  );
+  return isStoredObject(archivo.storage_path);
+}
+
+function displayArchivoNombre(archivo: ArchivoSponsor): string {
+  // Newsletter / LinkedIn guardan JSON en nombre_archivo; mostrar etiqueta legible.
+  if (archivo.nombre_archivo.trim().startsWith("{")) {
+    return labelInsumoFromTipo(archivo.tipo);
+  }
+  return archivo.nombre_archivo;
 }
 
 export default async function SponsorDetallePage({
@@ -120,7 +127,7 @@ export default async function SponsorDetallePage({
       .from("archivos")
       .select("id, tipo, nombre_archivo, storage_path, created_at")
       .eq("sponsor_id", sponsor.id)
-      .eq("direccion", "sponsor_sube")
+      .in("direccion", ["sponsor_sube", "admin_sube_por_sponsor"])
       .order("created_at", { ascending: false }),
     supabase
       .from("archivos")
@@ -184,16 +191,26 @@ export default async function SponsorDetallePage({
     new Set((tiersResult.data ?? []).map((item) => item.tier)),
   );
 
-  // Más reciente por compromiso (query ordenada desc por created_at).
+  // Más reciente por compromiso; preferir archivo real sobre markers JSON.
   const archivosPorCompromiso = new Map<string, ArchivoPorSponsor>();
   for (const row of archivosBeneficioResult.data ?? []) {
     const compromisoId = row.compromiso_id as string | null;
-    if (!compromisoId || archivosPorCompromiso.has(compromisoId)) continue;
-    archivosPorCompromiso.set(compromisoId, {
+    if (!compromisoId) continue;
+    const candidate: ArchivoPorSponsor = {
       id: row.id as string,
       nombre: row.nombre_archivo as string,
       storagePath: row.storage_path as string,
-    });
+    };
+    const existing = archivosPorCompromiso.get(compromisoId);
+    if (!existing) {
+      archivosPorCompromiso.set(compromisoId, candidate);
+      continue;
+    }
+    const existingReal = isStoredObject(existing.storagePath);
+    const candidateReal = isStoredObject(candidate.storagePath);
+    if (!existingReal && candidateReal) {
+      archivosPorCompromiso.set(compromisoId, candidate);
+    }
   }
 
   // Las URLs firmadas se generan con el cliente de service_role porque las
@@ -232,7 +249,11 @@ export default async function SponsorDetallePage({
       };
     }),
   );
-  const tiposSubidos = new Set(archivos.map((archivo) => archivo.tipo));
+  const tiposSubidos = new Set(
+    archivos
+      .map((archivo) => insumoKeyFromTipo(archivo.tipo))
+      .filter((key): key is string => key != null),
+  );
   const entregasConUrl = await Promise.all(
     entregas.map(async (archivo) => {
       const [viewResult, downloadResult] = await Promise.all([
@@ -360,10 +381,11 @@ export default async function SponsorDetallePage({
                 {archivosConUrl.map((archivo) => (
                   <TableRow key={archivo.id}>
                     <TableCell className="font-medium">
-                      {INSUMO_LABEL.get(archivo.tipo) ?? archivo.tipo}
+                      {INSUMO_LABEL.get(insumoKeyFromTipo(archivo.tipo) ?? "") ??
+                        labelInsumoFromTipo(archivo.tipo)}
                     </TableCell>
                     <TableCell className="max-w-[320px] truncate">
-                      {archivo.nombre_archivo}
+                      {displayArchivoNombre(archivo)}
                     </TableCell>
                     <TableCell>{formatDateTime(archivo.created_at)}</TableCell>
                     <TableCell>

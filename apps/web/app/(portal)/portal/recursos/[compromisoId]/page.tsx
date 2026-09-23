@@ -120,12 +120,22 @@ export default async function BeneficioDetallePage({
     ? parseNewsletter(newsletterArchivo.nombre_archivo)
     : null;
 
+  const linkedInRows = archivosConUrl.filter(
+    (item) => item.tipo === TIPO_LINKEDIN_INSTAGRAM,
+  );
   const linkedInArchivo =
-    archivosConUrl.find((item) => item.tipo === TIPO_LINKEDIN_INSTAGRAM) ??
-    null;
+    linkedInRows.find((item) => !isStoredObject(item.storage_path)) ?? null;
   const linkedInInitial = linkedInArchivo
     ? parseLinkedInInstagram(linkedInArchivo.nombre_archivo)
     : null;
+  const linkedInImagenes = linkedInRows
+    .filter((item) => isStoredObject(item.storage_path))
+    .map((item) => ({
+      id: item.id,
+      nombre: item.nombre_archivo,
+      storagePath: item.storage_path,
+      viewUrl: item.viewUrl,
+    }));
 
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-6 py-10">
@@ -237,6 +247,7 @@ export default async function BeneficioDetallePage({
                 }
               : null
           }
+          imagenes={linkedInImagenes}
         />
       ) : null}
 

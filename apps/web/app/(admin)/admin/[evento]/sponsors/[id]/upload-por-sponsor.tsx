@@ -10,6 +10,7 @@ import {
   isStoredObject,
   safeFilename,
   tipoFormulario,
+  TIPO_LINKEDIN_INSTAGRAM,
   TIPO_LOGO,
   TIPO_NEWSLETTER,
   TIPO_SPEAKER_FORM,
@@ -25,6 +26,7 @@ function tipoDesdeBeneficio(nombreBeneficio: string): string {
   const tipo = tipoFormulario(nombreBeneficio);
   if (tipo === "branding") return TIPO_LOGO;
   if (tipo === "newsletter") return TIPO_NEWSLETTER;
+  if (tipo === "linkedin_instagram") return TIPO_LINKEDIN_INSTAGRAM;
   if (tipo === "speaker") return TIPO_SPEAKER_FORM;
   return "archivo";
 }

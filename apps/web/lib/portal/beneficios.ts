@@ -264,6 +264,7 @@ export function parseLinkedInInstagram(
 
 export function linkedInInstagramCompleto(
   payload: LinkedInInstagramPayload | null,
+  imageCount = 0,
 ): boolean {
   if (!payload) return false;
   return (
@@ -272,7 +273,8 @@ export function linkedInInstagramCompleto(
     payload.parrafo2.trim().length > 0 &&
     countWords(payload.parrafo1) <= 80 &&
     countWords(payload.parrafo2) <= 80 &&
-    countWords(payload.parrafo3) <= 80
+    countWords(payload.parrafo3) <= 80 &&
+    imageCount > 0
   );
 }
 
@@ -357,12 +359,18 @@ export function progresoBeneficio(
   }
 
   if (tipo === "linkedin_instagram") {
-    const row =
-      archivos.find((item) => item.tipo === TIPO_LINKEDIN_INSTAGRAM) ??
-      archivos[0];
-    const completed = linkedInInstagramCompleto(
-      row ? parseLinkedInInstagram(row.nombre_archivo) : null,
+    const liRows = archivos.filter(
+      (item) => item.tipo === TIPO_LINKEDIN_INSTAGRAM,
     );
+    const meta =
+      liRows.find((item) => !isStoredObject(item.storage_path)) ?? null;
+    const images = liRows.filter((item) => isStoredObject(item.storage_path));
+    // Formulario completo (texto + ≥1 imagen) O archivo real subido por CS
+    const completed =
+      linkedInInstagramCompleto(
+        meta ? parseLinkedInInstagram(meta.nombre_archivo) : null,
+        images.length,
+      ) || images.length > 0;
     return {
       current: completed ? 1 : 0,
       total: 1,
