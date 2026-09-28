@@ -17,7 +17,6 @@ type SponsorRow = {
   id: string;
   nombre: string;
   paquete: string | null;
-  contacto_email: string | null;
 };
 
 type CompromisoRow = {
@@ -37,10 +36,7 @@ type AccesoRow = {
 };
 
 function esSponsorPlaceholder(sponsor: SponsorRow): boolean {
-  return (
-    sponsor.nombre.trim().toLowerCase().startsWith("backlog") ||
-    !sponsor.contacto_email
-  );
+  return sponsor.nombre.trim().toLowerCase().startsWith("backlog");
 }
 
 function formatDateTime(value: string | null): string {
@@ -83,7 +79,7 @@ export default async function MetricasPage({
 
   const sponsorsResult = await supabase
     .from("sponsors")
-    .select("id, nombre, paquete, contacto_email")
+    .select("id, nombre, paquete")
     .eq("evento_id", evento.id)
     .order("nombre");
 
@@ -226,8 +222,7 @@ export default async function MetricasPage({
         <h1 className="text-xl font-semibold">Métricas</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Resumen de cumplimiento y actividad de los sponsors de{" "}
-          {evento.nombre}. Excluye sponsors "Backlog" o sin correo de
-          contacto.
+          {evento.nombre}. Excluye sponsors "Backlog".
         </p>
       </div>
 
@@ -259,8 +254,7 @@ export default async function MetricasPage({
           <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-14 text-center">
             <p className="font-medium">No hay sponsors activos para mostrar</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Los sponsors "Backlog" o sin correo de contacto se excluyen de
-              estas métricas.
+              Los sponsors "Backlog" se excluyen de estas métricas.
             </p>
           </div>
         ) : (
