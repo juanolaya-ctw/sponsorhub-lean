@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import "./globals.css";
+import { PostHogProvider } from "@/providers/PostHogProvider";
+import { PostHogPageView } from "@/components/PostHogPageView";
 
 export const metadata: Metadata = {
   title: "SponsorHub",
@@ -18,7 +21,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        <PostHogProvider>
+          <Suspense fallback={null}>
+            <PostHogPageView />
+          </Suspense>
+          {children}
+        </PostHogProvider>
+      </body>
     </html>
   );
 }

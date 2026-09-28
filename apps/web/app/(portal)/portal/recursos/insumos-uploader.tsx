@@ -3,6 +3,7 @@
 import { FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2 } from "lucide-react";
+import posthog from "posthog-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -107,6 +108,7 @@ function InsumoRow({
       return;
     }
 
+    posthog.capture("insumo_subido", { tipo: insumo.key, sponsor_id: sponsorId });
     setPending(false);
     onSaved();
   }
@@ -130,6 +132,7 @@ function InsumoRow({
       setPending(false);
       return;
     }
+    posthog.capture("insumo_subido", { tipo: insumo.key, sponsor_id: sponsorId });
     setPending(false);
     setOpenForm(false);
     onSaved();
@@ -156,6 +159,7 @@ function InsumoRow({
       setPending(false);
       return;
     }
+    posthog.capture("insumo_subido", { tipo: insumo.key, sponsor_id: sponsorId });
     setPending(false);
     setOpenForm(false);
     onSaved();

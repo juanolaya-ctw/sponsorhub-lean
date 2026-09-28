@@ -10,6 +10,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { getEventoBySlug } from "@/lib/admin/eventos";
 import { INSUMOS_REQUERIDOS, insumoKeyFromTipo } from "@/lib/portal/insumos";
+import {
+  getPortalPageviewsLast7Days,
+  postHogAppHost,
+  type PageviewPoint,
+} from "@/lib/posthog/trends";
 
 const TOTAL_INSUMOS_REQUERIDOS = INSUMOS_REQUERIDOS.length;
 
@@ -49,6 +54,41 @@ function formatDateTime(value: string | null): string {
   }).format(date);
 }
 
+function formatShortDate(value: string): string {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-CO", {
+    day: "2-digit",
+    month: "short",
+  }).format(date);
+}
+
+function TrendBars({ data }: { data: PageviewPoint[] }) {
+  const max = Math.max(1, ...data.map((point) => point.count));
+  return (
+    <ul className="mt-4 space-y-2">
+      {data.map((point) => (
+        <li key={point.date} className="flex items-center gap-3 text-sm">
+          <span className="w-16 shrink-0 text-muted-foreground">
+            {formatShortDate(point.date)}
+          </span>
+          <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+            <span
+              className="block h-full rounded-full bg-secondary"
+              style={{
+                width: `${Math.max(4, Math.round((point.count / max) * 100))}%`,
+              }}
+            />
+          </span>
+          <span className="w-10 shrink-0 text-right font-medium">
+            {point.count}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function StatCard({
   label,
   value,
@@ -77,11 +117,14 @@ export default async function MetricasPage({
   const { evento: slug } = await params;
   const { evento, supabase } = await getEventoBySlug(slug);
 
-  const sponsorsResult = await supabase
-    .from("sponsors")
-    .select("id, nombre, paquete")
-    .eq("evento_id", evento.id)
-    .order("nombre");
+  const [sponsorsResult, pageviews] = await Promise.all([
+    supabase
+      .from("sponsors")
+      .select("id, nombre, paquete")
+      .eq("evento_id", evento.id)
+      .order("nombre"),
+    getPortalPageviewsLast7Days(),
+  ]);
 
   if (sponsorsResult.error) throw new Error(sponsorsResult.error.message);
 
@@ -297,27 +340,42 @@ export default async function MetricasPage({
 
       <section>
         <h2 className="text-lg font-semibold">Tráfico</h2>
-        <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-10 text-center">
-          <BarChart2
-            className="mx-auto size-8 text-muted-foreground"
-            aria-hidden
-          />
-          <p className="mt-3 font-medium">
-            Integración de analytics de tráfico próximamente.
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Conectar PostHog para ver sesiones diarias, bounce rate y canales
-            de adquisición.
-          </p>
-          <Button asChild variant="outline" size="sm" className="mt-4">
-            <a
-              href="https://posthog.com/docs/libraries/next-js"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Configurar
-            </a>
-          </Button>
+        <div className="mt-4 rounded-xl border border-border bg-white p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <BarChart2
+                className="mt-0.5 size-5 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
+              <div>
+                <p className="font-medium">Ver analytics en PostHog</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Sesiones diarias, bounce rate y canales de adquisición del
+                  portal.
+                </p>
+              </div>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <a href={postHogAppHost()} target="_blank" rel="noreferrer">
+                Abrir PostHog
+              </a>
+            </Button>
+          </div>
+
+          <div className="mt-5 border-t border-border pt-5">
+            <p className="text-sm font-medium">
+              Pageviews del portal · últimos 7 días
+            </p>
+            {pageviews && pageviews.length > 0 ? (
+              <TrendBars data={pageviews} />
+            ) : (
+              <p className="mt-3 text-sm text-muted-foreground">
+                Sin datos disponibles todavía. Configura
+                POSTHOG_PERSONAL_API_KEY y POSTHOG_PROJECT_ID para ver esta
+                serie.
+              </p>
+            )}
+          </div>
         </div>
       </section>
     </div>

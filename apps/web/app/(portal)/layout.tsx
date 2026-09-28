@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BrandLogo } from "@/components/BrandLogo";
+import { PostHogIdentify } from "@/components/PostHogIdentify";
 import { SignOutButton } from "@/components/layout/SignOutButton";
 import {
   DEACTIVATED_ACCOUNT_QUERY,
@@ -36,6 +37,9 @@ export default async function PortalLayout({
 
   return (
     <div className="min-h-screen bg-background">
+      {user ? (
+        <PostHogIdentify userId={user.id} email={user.email ?? null} rol="sponsor" />
+      ) : null}
       <header className="sticky top-0 z-50 flex h-14 items-center justify-between border-b border-border bg-white px-4">
         <Link href="/portal/dashboard">
           <BrandLogo />
