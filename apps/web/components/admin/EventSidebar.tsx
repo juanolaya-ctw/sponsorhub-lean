@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BarChart2,
   Bell,
   Building2,
   ClipboardList,
@@ -18,6 +19,7 @@ const LINKS: Array<{
 }> = [
   { href: "sponsors", label: "Sponsors", icon: Building2 },
   { href: "compromisos", label: "Compromisos", icon: ClipboardList },
+  { href: "metricas", label: "Métricas", icon: BarChart2 },
   { href: "usuarios", label: "Usuarios", icon: Users },
   { href: "alertas", label: "Alertas", icon: Bell },
 ];
