@@ -105,3 +105,51 @@ export async function saveBulkEntregaLink(
   revalidatePath(`/admin/${eventoSlug}/compromisos`);
   return { error: null };
 }
+
+export async function deleteEntregasBulk(
+  archivoIds: string[],
+  eventoSlug: string,
+) {
+  if (archivoIds.length === 0) return { error: "No hay archivos que eliminar." };
+
+  const { supabase } = await requireAdmin();
+
+  // Read with RLS to validate admin access and collect paths
+  const { data: rows, error: fetchError } = await supabase
+    .from("archivos")
+    .select("id, storage_path, sponsor_id")
+    .in("id", archivoIds)
+    .eq("direccion", "ctw_entrega");
+
+  if (fetchError) return { error: fetchError.message };
+  if (!rows || rows.length === 0) return { error: "No se encontraron los archivos." };
+
+  const admin = createAdminClient();
+  const { error: deleteError } = await admin
+    .from("archivos")
+    .delete()
+    .in("id", archivoIds)
+    .eq("direccion", "ctw_entrega");
+
+  if (deleteError) return { error: deleteError.message };
+
+  // Remove from storage only unique paths that are no longer referenced
+  const uniquePaths = Array.from(new Set(rows.map((r) => r.storage_path as string)));
+  for (const path of uniquePaths) {
+    if (/^https?:\/\//i.test(path)) continue;
+    const { count } = await admin
+      .from("archivos")
+      .select("id", { count: "exact", head: true })
+      .eq("storage_path", path);
+    if (!count) {
+      await admin.storage.from(BUCKET).remove([path]);
+    }
+  }
+
+  const uniqueSponsorIds = Array.from(new Set(rows.map((r) => r.sponsor_id as string)));
+  for (const sponsorId of uniqueSponsorIds) {
+    revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
+  }
+  revalidatePath(`/admin/${eventoSlug}/compromisos`);
+  return { error: null };
+}

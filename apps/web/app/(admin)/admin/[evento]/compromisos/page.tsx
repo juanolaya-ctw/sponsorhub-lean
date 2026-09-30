@@ -13,6 +13,7 @@ import { TierSelect } from "../sponsors/tier-select";
 import { AddBeneficioForm } from "./add-beneficio-form";
 import { DeleteBeneficioButton } from "./delete-beneficio-button";
 import { EntregablesBulkButton } from "./entregables-bulk";
+import { EntregablesEnviados, type EntregaBatch } from "./entregables-enviados";
 
 type Beneficio = {
   id: string;
@@ -56,6 +57,47 @@ export default async function CompromisosPage({
 
   const beneficios = (catalogoResult.data ?? []) as Beneficio[];
   const sponsors = (sponsorsResult.data ?? []) as Sponsor[];
+
+  // Fetch all ctw_entrega archivos for this event's sponsors
+  const sponsorIds = sponsors.map((s) => s.id);
+  const sponsorById = new Map(sponsors.map((s) => [s.id, s]));
+  const entregasEnviadas: EntregaBatch[] = [];
+
+  if (sponsorIds.length > 0) {
+    const { data: entregasData } = await supabase
+      .from("archivos")
+      .select("id, tipo, nombre_archivo, storage_path, created_at, sponsor_id")
+      .in("sponsor_id", sponsorIds)
+      .eq("direccion", "ctw_entrega")
+      .order("created_at", { ascending: false });
+
+    if (entregasData) {
+      // Group by storage_path, keeping insertion order (most recent first)
+      const batchMap = new Map<string, EntregaBatch>();
+      for (const row of entregasData) {
+        const path = row.storage_path as string;
+        const sponsor = sponsorById.get(row.sponsor_id as string);
+        if (!sponsor) continue;
+        if (!batchMap.has(path)) {
+          batchMap.set(path, {
+            storagePath: path,
+            tipo: row.tipo as string,
+            nombre: row.nombre_archivo as string,
+            isLink: /^https?:\/\//i.test(path),
+            createdAt: row.created_at as string,
+            rows: [],
+          });
+        }
+        batchMap.get(path)!.rows.push({
+          archivoId: row.id as string,
+          sponsorId: sponsor.id,
+          sponsorNombre: sponsor.nombre,
+          sponsorPaquete: sponsor.paquete,
+        });
+      }
+      entregasEnviadas.push(...batchMap.values());
+    }
+  }
   const porTier = beneficios.reduce((groups, item) => {
     const current = groups.get(item.tier) ?? [];
     current.push(item);
@@ -141,13 +183,14 @@ export default async function CompromisosPage({
       <section>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Entregables masivos</h2>
+            <h2 className="text-lg font-semibold">Entregables de ColombiaTech</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Sube un archivo o link a varios sponsors a la vez.
+              Archivos y links enviados a los sponsors. Puedes eliminarlos para todos o para sponsors específicos.
             </p>
           </div>
           <EntregablesBulkButton sponsors={sponsors} eventoSlug={evento.slug} />
         </div>
+        <EntregablesEnviados batches={entregasEnviadas} eventoSlug={evento.slug} />
       </section>
 
       <section>
