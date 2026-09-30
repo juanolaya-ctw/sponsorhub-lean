@@ -23,6 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -37,6 +38,7 @@ import {
   deleteArchivo,
   finalizeEntregaUpload,
   prepareEntregaUpload,
+  saveEntregaLink,
 } from "./actions";
 
 const BUCKET = "sponsorhub-archivos";
@@ -64,9 +66,17 @@ export function EntregablesCtSection({
   const fileInput = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [tipo, setTipo] = useState<string>(ENTREGABLE_TIPOS[0]);
+  const [mode, setMode] = useState<"archivo" | "link">("archivo");
+  const [linkUrl, setLinkUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  function resetModal() {
+    setError(null);
+    setMode("archivo");
+    setLinkUrl("");
+  }
 
   async function upload(file: File) {
     setUploading(true);
@@ -120,7 +130,7 @@ export function EntregablesCtSection({
           open={open}
           onOpenChange={(next) => {
             setOpen(next);
-            setError(null);
+            if (!next) resetModal();
           }}
         >
           <DialogTrigger asChild>
@@ -130,7 +140,7 @@ export function EntregablesCtSection({
             <DialogHeader>
               <DialogTitle>Subir entregable</DialogTitle>
               <DialogDescription>
-                El archivo quedará disponible en el portal del sponsor.
+                El archivo o link quedará disponible en el portal del sponsor.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
@@ -149,6 +159,34 @@ export function EntregablesCtSection({
                   </SelectContent>
                 </Select>
               </div>
+              <div className="flex gap-1 rounded-lg border border-border p-1">
+                <button
+                  type="button"
+                  onClick={() => setMode("archivo")}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${mode === "archivo" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Archivo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("link")}
+                  className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${mode === "link" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Link
+                </button>
+              </div>
+              {mode === "link" ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="entrega-link">URL del recurso</Label>
+                  <Input
+                    id="entrega-link"
+                    type="url"
+                    placeholder="https://drive.google.com/…"
+                    value={linkUrl}
+                    onChange={(e) => setLinkUrl(e.target.value)}
+                  />
+                </div>
+              ) : null}
               <input
                 ref={fileInput}
                 type="file"
@@ -162,13 +200,34 @@ export function EntregablesCtSection({
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
             </div>
             <DialogFooter>
-              <Button
-                type="button"
-                disabled={uploading}
-                onClick={() => fileInput.current?.click()}
-              >
-                {uploading ? "Subiendo…" : "Elegir archivo"}
-              </Button>
+              {mode === "link" ? (
+                <Button
+                  type="button"
+                  disabled={uploading || !linkUrl.trim()}
+                  onClick={() => {
+                    setUploading(true);
+                    setError(null);
+                    startTransition(async () => {
+                      const result = await saveEntregaLink(sponsorId, eventoSlug, linkUrl.trim(), tipo);
+                      setUploading(false);
+                      if (result.error) { setError(result.error); return; }
+                      setOpen(false);
+                      resetModal();
+                      router.refresh();
+                    });
+                  }}
+                >
+                  {uploading ? "Guardando…" : "Guardar link"}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  disabled={uploading}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  {uploading ? "Subiendo…" : "Elegir archivo"}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

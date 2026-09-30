@@ -12,6 +12,7 @@ import { GOVTECH_EVENT_SLUG } from "@/lib/notion/client";
 import { TierSelect } from "../sponsors/tier-select";
 import { AddBeneficioForm } from "./add-beneficio-form";
 import { DeleteBeneficioButton } from "./delete-beneficio-button";
+import { EntregablesBulkButton } from "./entregables-bulk";
 
 type Beneficio = {
   id: string;
@@ -135,6 +136,18 @@ export default async function CompromisosPage({
             ))}
           </div>
         )}
+      </section>
+
+      <section>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Entregables masivos</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Sube un archivo o link a varios sponsors a la vez.
+            </p>
+          </div>
+          <EntregablesBulkButton sponsors={sponsors} eventoSlug={evento.slug} />
+        </div>
       </section>
 
       <section>

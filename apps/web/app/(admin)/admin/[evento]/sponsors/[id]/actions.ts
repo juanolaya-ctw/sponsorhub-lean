@@ -149,6 +149,37 @@ export async function finalizeEntregaUpload(
   return { error: null };
 }
 
+export async function saveEntregaLink(
+  sponsorId: string,
+  eventoSlug: string,
+  url: string,
+  tipo: string,
+) {
+  const { supabase, user } = await requireAdmin();
+  if (!ENTREGABLE_TIPOS.includes(tipo as (typeof ENTREGABLE_TIPOS)[number])) {
+    return { error: "Tipo de entregable no válido." };
+  }
+  try {
+    new URL(url);
+  } catch {
+    return { error: "La URL no es válida." };
+  }
+
+  const { error: insertError } = await supabase.from("archivos").insert({
+    sponsor_id: sponsorId,
+    direccion: "ctw_entrega",
+    tipo,
+    nombre_archivo: url,
+    storage_path: url,
+    subido_por: user.id,
+  });
+
+  if (insertError) return { error: insertError.message };
+
+  revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
+  return { error: null };
+}
+
 export async function deleteArchivo(
   archivoId: string,
   sponsorId: string,

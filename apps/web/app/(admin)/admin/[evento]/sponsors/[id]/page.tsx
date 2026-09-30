@@ -268,6 +268,18 @@ export default async function SponsorDetallePage({
 
   const entregasConUrl = await Promise.all(
     entregas.map(async (archivo) => {
+      if (!isStoredObject(archivo.storage_path)) {
+        const isUrl = /^https?:\/\//i.test(archivo.storage_path);
+        return {
+          id: archivo.id,
+          tipo: archivo.tipo,
+          nombre: archivo.nombre_archivo,
+          storagePath: archivo.storage_path,
+          createdAt: archivo.created_at,
+          viewUrl: isUrl ? archivo.storage_path : null,
+          downloadUrl: null,
+        };
+      }
       const [viewResult, downloadResult] = await Promise.all([
         admin.storage
           .from(BUCKET)
