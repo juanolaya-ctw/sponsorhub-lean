@@ -24,12 +24,82 @@ import {
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 import {
+  parseLinkedInInstagram,
+  parseNewsletter,
+} from "@/lib/portal/beneficios";
+import {
   deleteArchivo,
   finalizeReplacement,
   prepareReplacementUpload,
 } from "./actions";
 
 const BUCKET = "sponsorhub-archivos";
+
+function StructuredContent({ nombre }: { nombre: string }) {
+  const newsletter = parseNewsletter(nombre);
+  if (newsletter) {
+    return (
+      <div className="space-y-3 text-sm text-foreground">
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">
+            Título
+          </p>
+          <p className="mt-1 whitespace-pre-wrap">{newsletter.titulo}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">
+            Cuerpo
+          </p>
+          <p className="mt-1 whitespace-pre-wrap">{newsletter.cuerpo}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">
+            Link CTA
+          </p>
+          <p className="mt-1 break-all">{newsletter.cta || "—"}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const linkedin = parseLinkedInInstagram(nombre);
+  if (linkedin) {
+    return (
+      <div className="space-y-3 text-sm text-foreground">
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">
+            Dato impactante
+          </p>
+          <p className="mt-1 whitespace-pre-wrap">{linkedin.dato_impactante}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">
+            Párrafo 1
+          </p>
+          <p className="mt-1 whitespace-pre-wrap">{linkedin.parrafo1}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">
+            Párrafo 2
+          </p>
+          <p className="mt-1 whitespace-pre-wrap">{linkedin.parrafo2}</p>
+        </div>
+        {linkedin.parrafo3 ? (
+          <div>
+            <p className="text-xs font-medium uppercase text-muted-foreground">
+              Párrafo 3
+            </p>
+            <p className="mt-1 whitespace-pre-wrap">{linkedin.parrafo3}</p>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <p className="whitespace-pre-wrap text-sm text-foreground">{nombre}</p>
+  );
+}
 
 export function ArchivoActions({
   archivoId,
@@ -56,6 +126,8 @@ export function ArchivoActions({
   const [replacing, setReplacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const externalUrl = /^https?:\/\//i.test(storagePath) ? storagePath : null;
+  const hasStructured =
+    Boolean(parseNewsletter(nombre)) || Boolean(parseLinkedInInstagram(nombre));
 
   async function replaceFile(file: File) {
     setReplacing(true);
@@ -96,33 +168,38 @@ export function ArchivoActions({
     if (!result.error) router.refresh();
   }
 
-  const viewControl = viewUrl || externalUrl ? (
-    <Button asChild variant="outline" size="sm">
-      <a href={viewUrl ?? externalUrl ?? "#"} target="_blank" rel="noreferrer">
-        Ver
-      </a>
-    </Button>
-  ) : (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          Ver
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Contenido del insumo</DialogTitle>
-          <DialogDescription className="whitespace-pre-wrap text-foreground">
-            {nombre}
-          </DialogDescription>
-        </DialogHeader>
-      </DialogContent>
-    </Dialog>
-  );
+  // Si hay archivo real, "Ver archivo" abre la imagen/URL. Los textos
+  // estructurados se muestran en el desplegable del listado de insumos.
+  const viewControl =
+    viewUrl || externalUrl ? (
+      <Button asChild variant="outline" size="sm">
+        <a href={viewUrl ?? externalUrl ?? "#"} target="_blank" rel="noreferrer">
+          Ver archivo
+        </a>
+      </Button>
+    ) : (
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm">
+            {hasStructured ? "Ver textos" : "Ver"}
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Contenido del insumo</DialogTitle>
+            <DialogDescription asChild>
+              <div>
+                <StructuredContent nombre={nombre} />
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    );
 
   return (
     <div>
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-2">
         {viewControl}
 
         {realFile ? (

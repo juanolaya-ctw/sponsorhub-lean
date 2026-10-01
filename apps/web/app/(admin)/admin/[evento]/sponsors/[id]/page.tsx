@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -11,18 +13,14 @@ import { getEventoBySlug } from "@/lib/admin/eventos";
 import { GOVTECH_EVENT_SLUG } from "@/lib/notion/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  INSUMOS_REQUERIDOS,
-  insumoKeyFromTipo,
-  labelInsumoFromTipo,
-} from "@/lib/portal/insumos";
-import {
   isBeneficioInsumoCompleto,
   isStoredObject,
   loadPortalBeneficios,
+  parseNewsletter,
   requiereAccion,
 } from "@/lib/portal/beneficios";
-import { ArchivoActions } from "./archivo-actions";
 import { EntregablesCtSection } from "./entregables-ct";
+import { InsumosAdminList } from "./insumos-admin-list";
 import {
   BeneficiosSection,
   type BeneficioCompromisoRow,
@@ -54,6 +52,7 @@ type ArchivoSponsor = {
   nombre_archivo: string;
   storage_path: string;
   created_at: string;
+  compromiso_id: string | null;
 };
 
 type AccesoPersonaAdmin = {
@@ -73,27 +72,15 @@ type AccesoPersonaAdmin = {
   tipo: string;
 };
 
-const INSUMO_LABEL = new Map(
-  INSUMOS_REQUERIDOS.map((insumo) => [insumo.key, insumo.nombre]),
-);
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("es-CO", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
 function isRealFile(archivo: ArchivoSponsor): boolean {
   return isStoredObject(archivo.storage_path);
 }
 
-function displayArchivoNombre(archivo: ArchivoSponsor): string {
-  // Newsletter / LinkedIn guardan JSON en nombre_archivo; mostrar etiqueta legible.
-  if (archivo.nombre_archivo.trim().startsWith("{")) {
-    return labelInsumoFromTipo(archivo.tipo);
+/** Nombre de descarga legible cuando nombre_archivo es JSON (newsletter). */
+function downloadFilename(archivo: ArchivoSponsor): string {
+  if (parseNewsletter(archivo.nombre_archivo)) {
+    const ext = archivo.storage_path.match(/\.[a-z0-9]+$/i)?.[0] ?? ".png";
+    return `newsletter-${archivo.id}${ext}`;
   }
   return archivo.nombre_archivo;
 }
@@ -130,13 +117,13 @@ export default async function SponsorDetallePage({
   ] = await Promise.all([
     supabase
       .from("archivos")
-      .select("id, tipo, nombre_archivo, storage_path, created_at")
+      .select("id, tipo, nombre_archivo, storage_path, created_at, compromiso_id")
       .eq("sponsor_id", sponsor.id)
       .in("direccion", ["sponsor_sube", "admin_sube_por_sponsor"])
       .order("created_at", { ascending: false }),
     supabase
       .from("archivos")
-      .select("id, tipo, nombre_archivo, storage_path, created_at")
+      .select("id, tipo, nombre_archivo, storage_path, created_at, compromiso_id")
       .eq("sponsor_id", sponsor.id)
       .eq("direccion", "ctw_entrega")
       .order("created_at", { ascending: false }),
@@ -236,6 +223,7 @@ export default async function SponsorDetallePage({
           downloadUrl: null,
         };
       }
+      const filename = downloadFilename(archivo);
       const [viewResult, downloadResult] = await Promise.all([
         admin.storage
           .from(BUCKET)
@@ -243,7 +231,7 @@ export default async function SponsorDetallePage({
         admin.storage
           .from(BUCKET)
           .createSignedUrl(archivo.storage_path, SIGNED_URL_TTL, {
-            download: archivo.nombre_archivo,
+            download: filename,
           }),
       ]);
       return {
@@ -304,45 +292,54 @@ export default async function SponsorDetallePage({
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold">{sponsor.nombre}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{evento.nombre}</p>
-          {sponsor.contacto_nombre ||
-          sponsor.contacto_email ||
-          sponsor.contacto_telefono ? (
-            <p className="mt-1 text-sm text-muted-foreground">
-              {[
-                sponsor.contacto_nombre,
-                sponsor.contacto_email,
-                sponsor.contacto_telefono,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap items-start gap-4">
-          <TierSelect
-            sponsorId={sponsor.id}
-            eventoSlug={evento.slug}
-            currentTier={sponsor.paquete}
-            tiers={tiers}
-          />
-          <DeleteSponsorButton
-            sponsorId={sponsor.id}
-            sponsorNombre={sponsor.nombre}
-            eventoSlug={evento.slug}
-            redirectAfterDelete
-          />
+      <div>
+        <Link
+          href={`/admin/${evento.slug}/sponsors`}
+          className="mb-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+          Volver a sponsors
+        </Link>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold">{sponsor.nombre}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{evento.nombre}</p>
+            {sponsor.contacto_nombre ||
+            sponsor.contacto_email ||
+            sponsor.contacto_telefono ? (
+              <p className="mt-1 text-sm text-muted-foreground">
+                {[
+                  sponsor.contacto_nombre,
+                  sponsor.contacto_email,
+                  sponsor.contacto_telefono,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-start gap-4">
+            <TierSelect
+              sponsorId={sponsor.id}
+              eventoSlug={evento.slug}
+              currentTier={sponsor.paquete}
+              tiers={tiers}
+            />
+            <DeleteSponsorButton
+              sponsorId={sponsor.id}
+              sponsorNombre={sponsor.nombre}
+              eventoSlug={evento.slug}
+              redirectAfterDelete
+            />
+          </div>
         </div>
       </div>
 
       <section>
         <h2 className="text-lg font-semibold">Insumos del sponsor</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Pendientes según los beneficios sincronizados de Notion (y los
-          archivos que el sponsor ya subió al portal).
+          Despliega cada beneficio para ver textos e imágenes juntos (newsletter,
+          LinkedIn/Instagram, logos, etc.).
         </p>
 
         <div className="mt-4 rounded-xl border border-border bg-white p-4">
@@ -398,50 +395,21 @@ export default async function SponsorDetallePage({
           )}
         </div>
 
-        {archivosConUrl.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-12 text-center">
-            <p className="font-medium">Este sponsor aún no ha subido insumos</p>
-          </div>
-        ) : (
-          <div className="mt-4 rounded-xl border border-border bg-white">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tipo de insumo</TableHead>
-                  <TableHead>Archivo / contenido</TableHead>
-                  <TableHead>Fecha de subida</TableHead>
-                  <TableHead>Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {archivosConUrl.map((archivo) => (
-                  <TableRow key={archivo.id}>
-                    <TableCell className="font-medium">
-                      {INSUMO_LABEL.get(insumoKeyFromTipo(archivo.tipo) ?? "") ??
-                        labelInsumoFromTipo(archivo.tipo)}
-                    </TableCell>
-                    <TableCell className="max-w-[320px] truncate">
-                      {displayArchivoNombre(archivo)}
-                    </TableCell>
-                    <TableCell>{formatDateTime(archivo.created_at)}</TableCell>
-                    <TableCell>
-                      <ArchivoActions
-                        archivoId={archivo.id}
-                        sponsorId={sponsor.id}
-                        eventoSlug={evento.slug}
-                        nombre={archivo.nombre_archivo}
-                        storagePath={archivo.storage_path}
-                        viewUrl={archivo.viewUrl}
-                        downloadUrl={archivo.downloadUrl}
-                        realFile={archivo.realFile}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+        <InsumosAdminList
+          archivos={archivosConUrl.map((archivo) => ({
+            id: archivo.id,
+            tipo: archivo.tipo,
+            nombre_archivo: archivo.nombre_archivo,
+            storage_path: archivo.storage_path,
+            created_at: archivo.created_at,
+            compromiso_id: archivo.compromiso_id,
+            realFile: archivo.realFile,
+            viewUrl: archivo.viewUrl,
+            downloadUrl: archivo.downloadUrl,
+          }))}
+          sponsorId={sponsor.id}
+          eventoSlug={evento.slug}
+        />
       </section>
 
       <EntregablesCtSection
