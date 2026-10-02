@@ -14,6 +14,7 @@ import {
 const NON_EVENT_SEGMENTS = new Set([
   "selector-evento",
   "crear-evento",
+  "media",
 ]);
 
 function eventoSlugFromPath(pathname: string): string | null {
