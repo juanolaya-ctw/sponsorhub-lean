@@ -121,7 +121,7 @@ export default async function MediaDetallePage({
   for (const [cid, assets] of assetsPorCiclo.entries()) {
     usadosPorCiclo.set(
       cid,
-      assets.reduce((s, a) => s + (a.costo_creditos as number), 0),
+      assets.reduce((s: number, a) => s + (a.costo_creditos as number), 0),
     );
   }
 
