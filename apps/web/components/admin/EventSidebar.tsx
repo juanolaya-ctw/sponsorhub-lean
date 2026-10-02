@@ -7,6 +7,8 @@ import {
   Bell,
   Building2,
   ClipboardList,
+  Package,
+  Tv2,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -21,6 +23,8 @@ const LINKS: Array<{
   { href: "compromisos", label: "Compromisos", icon: ClipboardList },
   { href: "metricas", label: "Métricas", icon: BarChart2 },
   { href: "usuarios", label: "Usuarios", icon: Users },
+  { href: "media", label: "Media", icon: Tv2 },
+  { href: "media/catalogo", label: "Catálogo Media", icon: Package },
   { href: "alertas", label: "Alertas", icon: Bell },
 ];
 

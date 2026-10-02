@@ -74,7 +74,7 @@ export default async function SponsorDashboardPage() {
     getSponsorContext(),
   ]);
 
-  const [beneficios, timelineResult, ctResult] = await Promise.all([
+  const [beneficios, timelineResult, ctResult, mediaCycleResult] = await Promise.all([
     loadPortalBeneficios(supabase, sponsor.sponsorId),
     supabase
       .from("v_timeline_sponsor")
@@ -88,10 +88,35 @@ export default async function SponsorDashboardPage() {
       .eq("sponsor_id", sponsor.sponsorId)
       .eq("direccion", "ctw_entrega")
       .order("created_at", { ascending: false }),
+    supabase
+      .from("media_billing_cycles")
+      .select("id, creditos_asignados, creditos_rollover")
+      .eq("sponsor_id", sponsor.sponsorId)
+      .order("periodo", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   if (timelineResult.error) throw new Error(timelineResult.error.message);
   if (ctResult.error) throw new Error(ctResult.error.message);
+
+  const currentMediaCycle = mediaCycleResult.data ?? null;
+  let mediaDisponibles: number | null = null;
+  let mediaTotalCreditos: number | null = null;
+  if (currentMediaCycle) {
+    const { data: usadosData } = await supabase
+      .from("media_assets_ejecutados")
+      .select("costo_creditos")
+      .eq("billing_cycle_id", currentMediaCycle.id as string);
+    const usados = (usadosData ?? []).reduce(
+      (s, a) => s + (a.costo_creditos as number),
+      0,
+    );
+    const asignados = currentMediaCycle.creditos_asignados as number;
+    const rollover = currentMediaCycle.creditos_rollover as number;
+    mediaDisponibles = asignados + rollover - usados;
+    mediaTotalCreditos = asignados + rollover;
+  }
 
   const progreso = resumenProgreso(beneficios);
   const pendientes = beneficios.filter(
@@ -173,6 +198,36 @@ export default async function SponsorDashboardPage() {
       </section>
 
       <RecursosDisponibles archivos={ctResult.data ?? []} />
+
+      {mediaDisponibles !== null && mediaTotalCreditos !== null ? (
+        <section>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-xl font-semibold">CT Media</h2>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/portal/media">Ver detalle</Link>
+            </Button>
+          </div>
+          <div className="mt-3 rounded-xl border border-border bg-white p-4">
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold">{mediaDisponibles}</span>
+              <span className="text-sm text-muted-foreground">
+                créditos disponibles de {mediaTotalCreditos}
+              </span>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-[#42B3F3] transition-all"
+                style={{
+                  width: `${Math.min(100, Math.round(((mediaTotalCreditos - mediaDisponibles) / (mediaTotalCreditos || 1)) * 100))}%`,
+                }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Tus créditos se recargan el 1 de cada mes
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       <section>
         <h2 className="text-xl font-semibold">Tus beneficios</h2>
