@@ -74,6 +74,34 @@ export default async function SelectorEventoPage() {
           ))}
         </ul>
       )}
+
+      {/* Workspaces transversales */}
+      <div className="mt-12">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+          Workspaces
+        </h2>
+        <ul className="mt-3 grid gap-4 sm:grid-cols-2">
+          <li>
+            <Link
+              href="/admin/media"
+              className="block rounded-xl border border-border bg-white p-5 transition-colors hover:border-secondary hover:bg-muted/40"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="font-semibold">CT Media</h2>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  Activo
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Clientes, planes y assets de media táctica
+              </p>
+              <p className="mt-4 text-sm text-muted-foreground">
+                Transversal a todos los eventos
+              </p>
+            </Link>
+          </li>
+        </ul>
+      </div>
     </main>
   );
 }
