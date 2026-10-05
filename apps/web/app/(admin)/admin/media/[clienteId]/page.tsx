@@ -19,6 +19,7 @@ import { AssetEstadoSelect } from "./asset-estado-select";
 import { CerrarCicloDialog } from "./cerrar-ciclo-dialog";
 import { EditarNotasDialog } from "./editar-notas-dialog";
 import { TopupDialog } from "./topup-dialog";
+import { CambiarPlanDialog } from "./cambiar-plan-dialog";
 
 type AssetEstado =
   | "pendiente_insumos"
@@ -206,11 +207,19 @@ export default async function ClienteMediaPage({
               {cliente.empresa && cliente.email_contacto ? " · " : ""}
               {(cliente.email_contacto as string | null) ?? ""}
             </p>
-            <p className="mt-0.5 text-sm text-muted-foreground">
+            <p className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
               {currentPlan?.nombre ?? "Sin plan activo"}{" "}
               {currentCycle
                 ? `· ${formatPeriodo(currentCycle.periodo as string)}`
                 : "· Sin ciclos"}
+              {currentCycleId && (
+                <CambiarPlanDialog
+                  billingCycleId={currentCycleId}
+                  currentPlanId={currentCycle!.plan_id as string}
+                  planes={planes}
+                  clienteId={clienteId}
+                />
+              )}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

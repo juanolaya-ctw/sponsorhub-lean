@@ -123,7 +123,7 @@ export function PlanesTable({ planes }: { planes: MediaPlan[] }) {
               {planes.map((plan) => (
                 <TableRow key={plan.id}>
                   <TableCell className="font-medium">{plan.nombre}</TableCell>
-                  <TableCell>{plan.creditosMensuales.toLocaleString()}</TableCell>
+                  <TableCell>{plan.creditosMensuales.toLocaleString("en-US")}</TableCell>
                   <TableCell>
                     ${plan.precioUsd.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                   </TableCell>

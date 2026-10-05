@@ -451,3 +451,35 @@ export async function togglePlan(
   revalidatePath("/admin/media/planes");
   return { error: null, success: true };
 }
+
+export async function cambiarPlanCiclo(
+  billingCycleId: string,
+  nuevoPlanId: string,
+  clienteId: string,
+): Promise<MediaActionState> {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { data: plan, error: planError } = await admin
+    .from("media_planes")
+    .select("creditos_mensuales")
+    .eq("id", nuevoPlanId)
+    .eq("activo", true)
+    .maybeSingle();
+
+  if (planError) return { error: planError.message };
+  if (!plan) return { error: "Plan no encontrado." };
+
+  const { error } = await admin
+    .from("media_billing_cycles")
+    .update({
+      plan_id: nuevoPlanId,
+      creditos_asignados: plan.creditos_mensuales,
+    })
+    .eq("id", billingCycleId);
+
+  if (error) return { error: error.message };
+
+  revalidateMedia(clienteId);
+  return { error: null, success: true };
+}
