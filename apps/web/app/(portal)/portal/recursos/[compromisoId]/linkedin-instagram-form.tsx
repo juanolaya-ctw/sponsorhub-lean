@@ -332,6 +332,7 @@ export function LinkedInInstagramForm({
   }
 
   return (
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]">
     <section className="rounded-xl border border-border bg-white p-5">
       <h2 className="font-semibold">Contenido LinkedIn + Instagram</h2>
       {detalleSolicitud ? (
@@ -542,5 +543,22 @@ export function LinkedInInstagramForm({
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </form>
     </section>
+
+    <aside className="lg:sticky lg:top-6">
+      <p className="mb-2 text-sm font-medium">Referencia visual</p>
+      <p className="mb-3 text-xs text-muted-foreground">
+        Ejemplo de cómo puede verse el post en Instagram. No es una
+        vista previa de tu contenido.
+      </p>
+      <div className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/portal/mockup-instagram-post.png"
+          alt="Ejemplo de post de Instagram de ColombiaTech"
+          className="h-auto w-full"
+        />
+      </div>
+    </aside>
+    </div>
   );
 }

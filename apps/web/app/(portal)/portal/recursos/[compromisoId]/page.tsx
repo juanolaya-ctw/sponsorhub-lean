@@ -153,7 +153,7 @@ export default async function BeneficioDetallePage({
   return (
     <main
       className={
-        beneficio.tipo === "stand"
+        beneficio.tipo === "stand" || beneficio.tipo === "linkedin_instagram"
           ? "mx-auto max-w-5xl space-y-8 px-6 py-10"
           : "mx-auto max-w-3xl space-y-8 px-6 py-10"
       }
