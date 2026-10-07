@@ -81,11 +81,58 @@ export async function toggleClienteMedia(
   return { error: null, success: true };
 }
 
+export async function eliminarClienteMedia(
+  clienteId: string,
+): Promise<MediaActionState> {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { data: cycles, error: cyclesError } = await admin
+    .from("media_billing_cycles")
+    .select("id")
+    .eq("cliente_id", clienteId);
+
+  if (cyclesError) return { error: cyclesError.message };
+
+  const cycleIds = (cycles ?? []).map((c) => c.id as string);
+
+  if (cycleIds.length > 0) {
+    const { error: assetsError } = await admin
+      .from("media_assets_ejecutados")
+      .delete()
+      .in("billing_cycle_id", cycleIds);
+    if (assetsError) return { error: assetsError.message };
+
+    const { error: topupsError } = await admin
+      .from("media_ciclo_topups")
+      .delete()
+      .in("ciclo_id", cycleIds);
+    if (topupsError) return { error: topupsError.message };
+
+    const { error: deleteCyclesError } = await admin
+      .from("media_billing_cycles")
+      .delete()
+      .eq("cliente_id", clienteId);
+    if (deleteCyclesError) return { error: deleteCyclesError.message };
+  }
+
+  const { error } = await admin
+    .from("media_clientes")
+    .delete()
+    .eq("id", clienteId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/admin/media");
+  return { error: null, success: true };
+}
+
 // ── Ciclos ───────────────────────────────────────────────────────────────────
 
 export async function activarMediaCliente(
   clienteId: string,
   planId: string,
+  creditosAsignados?: number,
 ): Promise<MediaActionState> {
   await requireAdmin();
   const admin = createAdminClient();
@@ -107,12 +154,20 @@ export async function activarMediaCliente(
   if (planResult.error) return { error: planResult.error.message };
   if (!planResult.data) return { error: "Plan no encontrado." };
 
+  const base = planResult.data.creditos_mensuales as number;
+  const asignados =
+    typeof creditosAsignados === "number" &&
+    Number.isFinite(creditosAsignados) &&
+    creditosAsignados > 0
+      ? Math.round(creditosAsignados)
+      : base;
+
   const periodo = firstOfMonth(new Date());
   const insert: Record<string, unknown> = {
     cliente_id: clienteId,
     plan_id: planId,
     periodo,
-    creditos_asignados: planResult.data.creditos_mensuales as number,
+    creditos_asignados: asignados,
     creditos_rollover: 0,
   };
   if (clienteResult.data?.sponsor_id) {
@@ -120,6 +175,29 @@ export async function activarMediaCliente(
   }
 
   const { error } = await admin.from("media_billing_cycles").insert(insert);
+  if (error) return { error: error.message };
+
+  revalidateMedia(clienteId);
+  return { error: null, success: true };
+}
+
+export async function actualizarCreditosCiclo(
+  billingCycleId: string,
+  creditosAsignados: number,
+  clienteId: string,
+): Promise<MediaActionState> {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  if (!Number.isFinite(creditosAsignados) || creditosAsignados <= 0) {
+    return { error: "Los créditos deben ser un número mayor a 0." };
+  }
+
+  const { error } = await admin
+    .from("media_billing_cycles")
+    .update({ creditos_asignados: Math.round(creditosAsignados) })
+    .eq("id", billingCycleId);
+
   if (error) return { error: error.message };
 
   revalidateMedia(clienteId);
@@ -242,6 +320,109 @@ export async function agregarTopup(
   return { error: null, success: true };
 }
 
+export async function editarTopup(
+  topupId: string,
+  creditos: number,
+  motivo: string,
+  clienteId: string,
+): Promise<MediaActionState> {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  if (!Number.isFinite(creditos) || creditos <= 0) {
+    return { error: "Los créditos deben ser un número mayor a 0." };
+  }
+  if (!motivo.trim()) return { error: "El motivo es requerido." };
+
+  const { data: topup, error: topupError } = await admin
+    .from("media_ciclo_topups")
+    .select("id, ciclo_id, creditos")
+    .eq("id", topupId)
+    .maybeSingle();
+
+  if (topupError) return { error: topupError.message };
+  if (!topup) return { error: "Top-up no encontrado." };
+
+  const { data: cycle, error: cycleError } = await admin
+    .from("media_billing_cycles")
+    .select("id, creditos_extra")
+    .eq("id", topup.ciclo_id as string)
+    .maybeSingle();
+
+  if (cycleError) return { error: cycleError.message };
+  if (!cycle) return { error: "Ciclo no encontrado." };
+
+  const prev = (topup.creditos as number) || 0;
+  const next = Math.round(creditos);
+  const currentExtra = (cycle.creditos_extra as number | null) ?? 0;
+  const newExtra = currentExtra - prev + next;
+  if (newExtra < 0) {
+    return { error: "El ajuste dejaría el top-up total en negativo." };
+  }
+
+  const [updateTopup, updateCycle] = await Promise.all([
+    admin
+      .from("media_ciclo_topups")
+      .update({ creditos: next, motivo: motivo.trim() })
+      .eq("id", topupId),
+    admin
+      .from("media_billing_cycles")
+      .update({ creditos_extra: newExtra })
+      .eq("id", cycle.id as string),
+  ]);
+
+  if (updateTopup.error) return { error: updateTopup.error.message };
+  if (updateCycle.error) return { error: updateCycle.error.message };
+
+  revalidateMedia(clienteId);
+  return { error: null, success: true };
+}
+
+export async function eliminarTopup(
+  topupId: string,
+  clienteId: string,
+): Promise<MediaActionState> {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { data: topup, error: topupError } = await admin
+    .from("media_ciclo_topups")
+    .select("id, ciclo_id, creditos")
+    .eq("id", topupId)
+    .maybeSingle();
+
+  if (topupError) return { error: topupError.message };
+  if (!topup) return { error: "Top-up no encontrado." };
+
+  const { data: cycle, error: cycleError } = await admin
+    .from("media_billing_cycles")
+    .select("id, creditos_extra")
+    .eq("id", topup.ciclo_id as string)
+    .maybeSingle();
+
+  if (cycleError) return { error: cycleError.message };
+  if (!cycle) return { error: "Ciclo no encontrado." };
+
+  const prev = (topup.creditos as number) || 0;
+  const currentExtra = (cycle.creditos_extra as number | null) ?? 0;
+  const newExtra = Math.max(0, currentExtra - prev);
+
+  const { error: deleteError } = await admin
+    .from("media_ciclo_topups")
+    .delete()
+    .eq("id", topupId);
+  if (deleteError) return { error: deleteError.message };
+
+  const { error: updateError } = await admin
+    .from("media_billing_cycles")
+    .update({ creditos_extra: newExtra })
+    .eq("id", cycle.id as string);
+  if (updateError) return { error: updateError.message };
+
+  revalidateMedia(clienteId);
+  return { error: null, success: true };
+}
+
 // ── Assets ejecutados ────────────────────────────────────────────────────────
 
 export async function activarAssetCliente(
@@ -330,6 +511,24 @@ export async function actualizarEstadoAsset(
   const { error } = await admin
     .from("media_assets_ejecutados")
     .update(patch)
+    .eq("id", assetId);
+
+  if (error) return { error: error.message };
+
+  revalidateMedia(clienteId);
+  return { error: null, success: true };
+}
+
+export async function eliminarAssetEjecutado(
+  assetId: string,
+  clienteId: string,
+): Promise<MediaActionState> {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { error } = await admin
+    .from("media_assets_ejecutados")
+    .delete()
     .eq("id", assetId);
 
   if (error) return { error: error.message };
@@ -456,6 +655,7 @@ export async function cambiarPlanCiclo(
   billingCycleId: string,
   nuevoPlanId: string,
   clienteId: string,
+  creditosAsignados?: number,
 ): Promise<MediaActionState> {
   await requireAdmin();
   const admin = createAdminClient();
@@ -470,11 +670,19 @@ export async function cambiarPlanCiclo(
   if (planError) return { error: planError.message };
   if (!plan) return { error: "Plan no encontrado." };
 
+  const base = plan.creditos_mensuales as number;
+  const asignados =
+    typeof creditosAsignados === "number" &&
+    Number.isFinite(creditosAsignados) &&
+    creditosAsignados > 0
+      ? Math.round(creditosAsignados)
+      : base;
+
   const { error } = await admin
     .from("media_billing_cycles")
     .update({
       plan_id: nuevoPlanId,
-      creditos_asignados: plan.creditos_mensuales,
+      creditos_asignados: asignados,
     })
     .eq("id", billingCycleId);
 

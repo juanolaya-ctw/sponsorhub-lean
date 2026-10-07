@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useCallback } from "react";
+import { useState, useTransition, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -34,19 +35,44 @@ export function ActivarCicloDialog({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [planId, setPlanId] = useState("");
+  const [creditos, setCreditos] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const selectedPlan = planes.find((p) => p.id === planId) ?? null;
+
+  useEffect(() => {
+    if (selectedPlan) {
+      setCreditos(String(selectedPlan.creditosMensuales));
+    }
+  }, [selectedPlan]);
+
   const handleOpenChange = useCallback((next: boolean) => {
     setOpen(next);
-    if (next) { setPlanId(""); setError(null); }
+    if (next) {
+      setPlanId("");
+      setCreditos("");
+      setError(null);
+    }
   }, []);
 
   function handleSubmit() {
-    if (!planId) { setError("Selecciona un plan."); return; }
+    if (!planId) {
+      setError("Selecciona un plan.");
+      return;
+    }
+    const num = parseInt(creditos, 10);
+    if (!creditos || isNaN(num) || num <= 0) {
+      setError("Ingresa un monto de créditos mayor a 0.");
+      return;
+    }
     startTransition(async () => {
-      const result = await activarMediaCliente(clienteId, planId);
-      if (result.error) { setError(result.error); } else { setOpen(false); router.refresh(); }
+      const result = await activarMediaCliente(clienteId, planId, num);
+      if (result.error) setError(result.error);
+      else {
+        setOpen(false);
+        router.refresh();
+      }
     });
   }
 
@@ -58,7 +84,9 @@ export function ActivarCicloDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Activar Media</DialogTitle>
-          <DialogDescription>Crea el primer ciclo de créditos para este cliente.</DialogDescription>
+          <DialogDescription>
+            Crea el primer ciclo. Puedes ajustar los créditos del deal.
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
           <div>
@@ -70,16 +98,38 @@ export function ActivarCicloDialog({
               <SelectContent>
                 {planes.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
-                    {p.nombre} — {p.creditosMensuales.toLocaleString()} cr.
+                    {p.nombre} — base {p.creditosMensuales.toLocaleString()} cr.
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
+          <div>
+            <Label htmlFor="activar-creditos">Créditos del deal</Label>
+            <Input
+              id="activar-creditos"
+              type="number"
+              min={1}
+              value={creditos}
+              onChange={(e) => setCreditos(e.target.value)}
+              className="mt-1"
+              disabled={!planId}
+              placeholder="Ej. 2000, 2500, 3000"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Por defecto usa la base del plan; ajústalo según el deal.
+            </p>
+          </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setOpen(false)}
+          >
+            Cancelar
+          </Button>
           <Button type="button" disabled={pending} onClick={handleSubmit}>
             {pending ? "Activando…" : "Activar"}
           </Button>

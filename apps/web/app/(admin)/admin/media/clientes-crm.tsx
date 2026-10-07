@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { EliminarClienteButton } from "./eliminar-cliente-button";
 
 export type ClienteRow = {
   id: string;
@@ -23,12 +24,22 @@ export type ClienteRow = {
   planNombre: string | null;
   creditosDisponibles: number | null;
   periodo: string | null;
+  /** Suma de créditos asignados en todos los ciclos (proxy USD del deal). */
+  inversionUsd: number;
 };
 
 function formatPeriodo(periodo: string) {
   return new Date(`${periodo}T00:00:00`).toLocaleDateString("es-CO", {
     month: "short",
     year: "numeric",
+  });
+}
+
+function formatUsd(value: number) {
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
   });
 }
 
@@ -63,7 +74,9 @@ export function ClientesCrm({ clientes }: { clientes: ClienteRow[] }) {
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-white px-6 py-14 text-center">
           <p className="font-medium">
-            {query ? "Sin resultados para esa búsqueda" : "Aún no hay clientes media"}
+            {query
+              ? "Sin resultados para esa búsqueda"
+              : "Aún no hay clientes media"}
           </p>
           {!query ? (
             <p className="mt-1 text-sm text-muted-foreground">
@@ -81,6 +94,7 @@ export function ClientesCrm({ clientes }: { clientes: ClienteRow[] }) {
                 <TableHead>Plan activo</TableHead>
                 <TableHead>Ciclo</TableHead>
                 <TableHead>Créditos disp.</TableHead>
+                <TableHead>Inversión</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead />
               </TableRow>
@@ -91,7 +105,9 @@ export function ClientesCrm({ clientes }: { clientes: ClienteRow[] }) {
                   <TableCell>
                     <p className="font-medium">{c.nombre}</p>
                     {c.empresa ? (
-                      <p className="text-xs text-muted-foreground">{c.empresa}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {c.empresa}
+                      </p>
                     ) : null}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
@@ -104,7 +120,11 @@ export function ClientesCrm({ clientes }: { clientes: ClienteRow[] }) {
                   <TableCell>
                     {c.creditosDisponibles !== null ? (
                       <Badge
-                        variant={c.creditosDisponibles <= 0 ? "destructive" : "secondary"}
+                        variant={
+                          c.creditosDisponibles <= 0
+                            ? "destructive"
+                            : "secondary"
+                        }
                       >
                         {c.creditosDisponibles} cr.
                       </Badge>
@@ -112,15 +132,24 @@ export function ClientesCrm({ clientes }: { clientes: ClienteRow[] }) {
                       "—"
                     )}
                   </TableCell>
+                  <TableCell className="font-medium">
+                    {c.inversionUsd > 0 ? formatUsd(c.inversionUsd) : "—"}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={c.activo ? "default" : "outline"}>
                       {c.activo ? "Activo" : "Inactivo"}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button asChild size="sm" variant="outline">
-                      <Link href={`/admin/media/${c.id}`}>Ver perfil</Link>
-                    </Button>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/admin/media/${c.id}`}>Ver perfil</Link>
+                      </Button>
+                      <EliminarClienteButton
+                        clienteId={c.id}
+                        nombre={c.nombre}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

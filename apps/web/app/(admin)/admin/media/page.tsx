@@ -38,11 +38,17 @@ export default async function MediaCrmPage() {
     (planesResult.data ?? []).map((p) => [p.id as string, p.nombre as string]),
   );
 
-  // Latest cycle per cliente
+  // Latest cycle per cliente + inversión (suma créditos asignados del deal)
   const latestByCliente = new Map<string, (typeof cyclesResult.data)[number]>();
+  const inversionByCliente = new Map<string, number>();
   for (const cycle of cyclesResult.data ?? []) {
     const cid = cycle.cliente_id as string;
     if (!latestByCliente.has(cid)) latestByCliente.set(cid, cycle);
+    inversionByCliente.set(
+      cid,
+      (inversionByCliente.get(cid) ?? 0) +
+        ((cycle.creditos_asignados as number) || 0),
+    );
   }
 
   // Fetch used credits for latest cycles
@@ -89,6 +95,7 @@ export default async function MediaCrmPage() {
       planNombre: cycle ? (planMap.get(cycle.plan_id as string) ?? null) : null,
       creditosDisponibles,
       periodo: cycle ? (cycle.periodo as string) : null,
+      inversionUsd: inversionByCliente.get(cid) ?? 0,
     };
   });
 

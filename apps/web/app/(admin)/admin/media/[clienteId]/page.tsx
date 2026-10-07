@@ -20,6 +20,10 @@ import { CerrarCicloDialog } from "./cerrar-ciclo-dialog";
 import { EditarNotasDialog } from "./editar-notas-dialog";
 import { TopupDialog } from "./topup-dialog";
 import { CambiarPlanDialog } from "./cambiar-plan-dialog";
+import { EditarCreditosDialog } from "./editar-creditos-dialog";
+import { EliminarAssetButton } from "./eliminar-asset-button";
+import { ClienteMediaTabs } from "./cliente-media-tabs";
+import { TopupsHistorial, type TopupRow } from "./topups-historial";
 
 type AssetEstado =
   | "pendiente_insumos"
@@ -40,6 +44,14 @@ function formatDate(value: string | null | undefined) {
   return new Date(value).toLocaleDateString("es-CO", { dateStyle: "medium" });
 }
 
+function formatUsd(value: number) {
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+}
+
 export default async function ClienteMediaPage({
   params,
 }: {
@@ -53,7 +65,9 @@ export default async function ClienteMediaPage({
     await Promise.all([
       admin
         .from("media_clientes")
-        .select("id, nombre, empresa, email_contacto, telefono, notas, activo, sponsor_id")
+        .select(
+          "id, nombre, empresa, email_contacto, telefono, notas, activo, sponsor_id",
+        )
         .eq("id", clienteId)
         .maybeSingle(),
       admin
@@ -98,39 +112,63 @@ export default async function ClienteMediaPage({
 
   const allCycleIds = cycles.map((c) => c.id as string);
 
-  const assetsResult =
+  const [assetsResult, topupsResult] = await Promise.all([
     allCycleIds.length > 0
-      ? await admin
+      ? admin
           .from("media_assets_ejecutados")
           .select(
             "id, billing_cycle_id, asset_id, costo_creditos, estado, notas_cs, evidencias_url, entregado_at",
           )
           .in("billing_cycle_id", allCycleIds)
           .order("created_at", { ascending: false })
-      : {
-          data: [] as {
-            id: unknown;
-            billing_cycle_id: unknown;
-            asset_id: unknown;
-            costo_creditos: unknown;
-            estado: unknown;
-            notas_cs: unknown;
-            evidencias_url: unknown;
-            entregado_at: unknown;
-          }[],
-          error: null,
-        };
+      : { data: [], error: null },
+    allCycleIds.length > 0
+      ? admin
+          .from("media_ciclo_topups")
+          .select("id, ciclo_id, creditos, motivo, creado_por, created_at")
+          .in("ciclo_id", allCycleIds)
+          .order("created_at", { ascending: false })
+      : { data: [], error: null },
+  ]);
 
   if (assetsResult.error) throw new Error(assetsResult.error.message);
-  const allAssets = assetsResult.data ?? [];
+  if (topupsResult.error && topupsResult.error.code !== "42P01") {
+    throw new Error(topupsResult.error.message);
+  }
+
+  type AssetRow = {
+    id: string;
+    billing_cycle_id: string;
+    asset_id: string;
+    costo_creditos: number;
+    estado: string;
+    notas_cs: string | null;
+    evidencias_url: string | null;
+    entregado_at: string | null;
+  };
+
+  const allAssets = (assetsResult.data ?? []).map((a) => ({
+    id: a.id as string,
+    billing_cycle_id: a.billing_cycle_id as string,
+    asset_id: a.asset_id as string,
+    costo_creditos: a.costo_creditos as number,
+    estado: a.estado as string,
+    notas_cs: (a.notas_cs as string | null) ?? null,
+    evidencias_url: (a.evidencias_url as string | null) ?? null,
+    entregado_at: (a.entregado_at as string | null) ?? null,
+  })) as AssetRow[];
 
   const catalogMap = new Map(
     (catalogResult.data ?? []).map((a) => [a.id as string, a.nombre as string]),
   );
 
-  const assetsPorCiclo = new Map<string, typeof allAssets>();
+  const periodoByCiclo = new Map(
+    cycles.map((c) => [c.id as string, formatPeriodo(c.periodo as string)]),
+  );
+
+  const assetsPorCiclo = new Map<string, AssetRow[]>();
   for (const asset of allAssets) {
-    const cid = asset.billing_cycle_id as string;
+    const cid = asset.billing_cycle_id;
     if (!assetsPorCiclo.has(cid)) assetsPorCiclo.set(cid, []);
     assetsPorCiclo.get(cid)!.push(asset);
   }
@@ -139,9 +177,9 @@ export default async function ClienteMediaPage({
   for (const [cid, assets] of assetsPorCiclo.entries()) {
     usadosPorCiclo.set(
       cid,
-      (assets as { costo_creditos: number; estado: unknown }[])
+      assets
         .filter((a) => a.estado !== "cancelado")
-        .reduce((s: number, a) => s + (Number(a.costo_creditos) || 0), 0),
+        .reduce((s, a) => s + (Number(a.costo_creditos) || 0), 0),
     );
   }
 
@@ -165,7 +203,9 @@ export default async function ClienteMediaPage({
     currentAsignados + currentExtra + currentRollover - currentUsados;
 
   const currentPlanId = currentCycle?.plan_id as string | undefined;
-  const currentPlan = currentPlanId ? (planMap.get(currentPlanId) ?? null) : null;
+  const currentPlan = currentPlanId
+    ? (planMap.get(currentPlanId) ?? null)
+    : null;
 
   const catalog = (catalogResult.data ?? []).map((a) => ({
     id: a.id as string,
@@ -186,9 +226,198 @@ export default async function ClienteMediaPage({
     ? `/api/media/reporte/${currentCycleId}`
     : null;
 
+  const inversionUsd = cycles.reduce(
+    (sum, c) => sum + ((c.creditos_asignados as number) || 0),
+    0,
+  );
+
+  const topups: TopupRow[] = (topupsResult.data ?? []).map((row) => ({
+    id: row.id as string,
+    cicloId: row.ciclo_id as string,
+    creditos: row.creditos as number,
+    motivo: (row.motivo as string | null) ?? null,
+    creadoPor: (row.creado_por as string | null) ?? null,
+    createdAt: row.created_at as string,
+    periodoLabel:
+      periodoByCiclo.get(row.ciclo_id as string) ?? "Ciclo eliminado",
+  }));
+
+  const assetsSection = currentCycleId ? (
+    <section>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Assets del ciclo actual</h2>
+        <ActivarAssetDialog
+          billingCycleId={currentCycleId}
+          catalog={catalog}
+          disponibles={currentDisponibles}
+          clienteId={clienteId}
+        />
+      </div>
+
+      {currentAssets.length === 0 ? (
+        <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-10 text-center">
+          <p className="text-sm text-muted-foreground">
+            No hay assets activados en este ciclo.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-xl border border-border bg-white">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Asset</TableHead>
+                <TableHead>Costo</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead>Evidencias</TableHead>
+                <TableHead>Entregado</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {currentAssets.map((a) => {
+                const estado =
+                  (a.estado as AssetEstado) ?? "pendiente_insumos";
+                const assetNombre = resolveAssetNombre(a.asset_id);
+                return (
+                  <TableRow key={a.id}>
+                    <TableCell className="font-medium">
+                      {assetNombre}
+                    </TableCell>
+                    <TableCell>{a.costo_creditos} cr.</TableCell>
+                    <TableCell>
+                      <AssetEstadoSelect
+                        assetId={a.id}
+                        estado={estado}
+                        clienteId={clienteId}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {a.evidencias_url ? (
+                        <a
+                          href={a.evidencias_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm text-secondary hover:underline"
+                        >
+                          Ver
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {formatDate(a.entregado_at)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <EditarNotasDialog
+                          assetId={a.id}
+                          assetNombre={assetNombre}
+                          notasCs={a.notas_cs ?? ""}
+                          evidenciasUrl={a.evidencias_url ?? ""}
+                          clienteId={clienteId}
+                          estado={estado}
+                        />
+                        <EliminarAssetButton
+                          assetId={a.id}
+                          assetNombre={assetNombre}
+                          clienteId={clienteId}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </section>
+  ) : (
+    <div className="rounded-xl border border-dashed border-border bg-white px-6 py-10 text-center">
+      <p className="text-sm text-muted-foreground">
+        Activa un ciclo para gestionar assets.
+      </p>
+    </div>
+  );
+
+  const topupsSection = (
+    <section>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Historial de top-ups</h2>
+          <p className="text-sm text-muted-foreground">
+            Créditos extra y sus motivos.
+          </p>
+        </div>
+        {currentCycleId ? (
+          <TopupDialog cicloId={currentCycleId} clienteId={clienteId} />
+        ) : null}
+      </div>
+      <TopupsHistorial topups={topups} clienteId={clienteId} />
+    </section>
+  );
+
+  const timelineSection = (
+    <section>
+      <h2 className="text-lg font-semibold">Timeline de ciclos</h2>
+      {cycles.length === 0 ? (
+        <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-10 text-center">
+          <p className="text-sm text-muted-foreground">Sin ciclos.</p>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-xl border border-border bg-white">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Periodo</TableHead>
+                <TableHead>Plan</TableHead>
+                <TableHead>Asignados</TableHead>
+                <TableHead>Top-up</TableHead>
+                <TableHead>Rollover</TableHead>
+                <TableHead>Usados</TableHead>
+                <TableHead>Disponibles</TableHead>
+                <TableHead>Estado</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {cycles.map((c, idx) => {
+                const cid = c.id as string;
+                const asignados = c.creditos_asignados as number;
+                const extra = (c.creditos_extra as number | null) ?? 0;
+                const rollover = c.creditos_rollover as number;
+                const usados = usadosPorCiclo.get(cid) ?? 0;
+                const disponibles = asignados + extra + rollover - usados;
+                const planNombre =
+                  planMap.get(c.plan_id as string)?.nombre ?? "—";
+                return (
+                  <TableRow key={cid}>
+                    <TableCell className="font-medium capitalize">
+                      {formatPeriodo(c.periodo as string)}
+                    </TableCell>
+                    <TableCell>{planNombre}</TableCell>
+                    <TableCell>{asignados}</TableCell>
+                    <TableCell>{extra > 0 ? `+${extra}` : "—"}</TableCell>
+                    <TableCell>{rollover}</TableCell>
+                    <TableCell>{usados}</TableCell>
+                    <TableCell>{disponibles}</TableCell>
+                    <TableCell>
+                      <Badge variant={idx === 0 ? "default" : "outline"}>
+                        {idx === 0 ? "Activo" : "Cerrado"}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </section>
+  );
+
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div>
         <Link
           href="/admin/media"
@@ -207,20 +436,27 @@ export default async function ClienteMediaPage({
               {cliente.empresa && cliente.email_contacto ? " · " : ""}
               {(cliente.email_contacto as string | null) ?? ""}
             </p>
-            <p className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
+            <p className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               {currentPlan?.nombre ?? "Sin plan activo"}{" "}
               {currentCycle
                 ? `· ${formatPeriodo(currentCycle.periodo as string)}`
                 : "· Sin ciclos"}
-              {currentCycleId && (
+              {currentCycleId ? (
                 <CambiarPlanDialog
                   billingCycleId={currentCycleId}
                   currentPlanId={currentCycle!.plan_id as string}
+                  currentCreditos={currentAsignados}
                   planes={planes}
                   clienteId={clienteId}
                 />
-              )}
+              ) : null}
             </p>
+            {inversionUsd > 0 ? (
+              <p className="mt-1 text-sm">
+                Inversión hecha:{" "}
+                <span className="font-semibold">{formatUsd(inversionUsd)}</span>
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {reporteUrl ? (
@@ -245,15 +481,11 @@ export default async function ClienteMediaPage({
                 />
               </>
             ) : (
-              <ActivarCicloDialog
-                clienteId={clienteId}
-                planes={planes}
-              />
+              <ActivarCicloDialog clienteId={clienteId} planes={planes} />
             )}
           </div>
         </div>
 
-        {/* Balance */}
         {currentCycle ? (
           <div className="mt-4 rounded-xl border border-border bg-white p-4">
             <div className="flex flex-wrap gap-6">
@@ -262,7 +494,16 @@ export default async function ClienteMediaPage({
                 <p className="text-2xl font-bold">{currentDisponibles}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Asignados</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-muted-foreground">Asignados</p>
+                  {currentCycleId ? (
+                    <EditarCreditosDialog
+                      billingCycleId={currentCycleId}
+                      creditosActuales={currentAsignados}
+                      clienteId={clienteId}
+                    />
+                  ) : null}
+                </div>
                 <p className="text-lg font-semibold">{currentAsignados}</p>
               </div>
               {currentExtra > 0 ? (
@@ -288,7 +529,9 @@ export default async function ClienteMediaPage({
                     100,
                     Math.round(
                       (currentUsados /
-                        (currentAsignados + currentExtra + currentRollover || 1)) *
+                        (currentAsignados +
+                          currentExtra +
+                          currentRollover || 1)) *
                         100,
                     ),
                   )}%`,
@@ -299,155 +542,13 @@ export default async function ClienteMediaPage({
         ) : null}
       </div>
 
-      {/* Assets del ciclo activo */}
-      {currentCycleId ? (
-        <section>
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">Assets del ciclo actual</h2>
-            <ActivarAssetDialog
-              billingCycleId={currentCycleId}
-              catalog={catalog}
-              disponibles={currentDisponibles}
-              clienteId={clienteId}
-            />
-          </div>
-
-          {currentAssets.length === 0 ? (
-            <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-10 text-center">
-              <p className="text-sm text-muted-foreground">
-                No hay assets activados en este ciclo.
-              </p>
-            </div>
-          ) : (
-            <div className="mt-4 rounded-xl border border-border bg-white">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Asset</TableHead>
-                    <TableHead>Costo</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Evidencias</TableHead>
-                    <TableHead>Entregado</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {currentAssets.map((a) => {
-                    const estado =
-                      (a.estado as AssetEstado) ?? "pendiente_insumos";
-                    const assetNombre = resolveAssetNombre(a.asset_id);
-                    return (
-                      <TableRow key={a.id as string}>
-                        <TableCell className="font-medium">
-                          {assetNombre}
-                        </TableCell>
-                        <TableCell>
-                          {a.costo_creditos as number} cr.
-                        </TableCell>
-                        <TableCell>
-                          <AssetEstadoSelect
-                            assetId={a.id as string}
-                            estado={estado}
-                            clienteId={clienteId}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          {a.evidencias_url ? (
-                            <a
-                              href={a.evidencias_url as string}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-sm text-secondary hover:underline"
-                            >
-                              Ver
-                            </a>
-                          ) : (
-                            "—"
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {formatDate(a.entregado_at as string | null)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <EditarNotasDialog
-                            assetId={a.id as string}
-                            assetNombre={assetNombre}
-                            notasCs={(a.notas_cs as string | null) ?? ""}
-                            evidenciasUrl={
-                              (a.evidencias_url as string | null) ?? ""
-                            }
-                            clienteId={clienteId}
-                            estado={estado}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </section>
-      ) : null}
-
-      {/* Timeline de ciclos */}
-      <section>
-        <h2 className="text-lg font-semibold">Timeline de ciclos</h2>
-        {cycles.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-10 text-center">
-            <p className="text-sm text-muted-foreground">Sin ciclos.</p>
-          </div>
-        ) : (
-          <div className="mt-4 rounded-xl border border-border bg-white">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Periodo</TableHead>
-                  <TableHead>Plan</TableHead>
-                  <TableHead>Asignados</TableHead>
-                  <TableHead>Top-up</TableHead>
-                  <TableHead>Rollover</TableHead>
-                  <TableHead>Usados</TableHead>
-                  <TableHead>Disponibles</TableHead>
-                  <TableHead>Estado</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {cycles.map((c, idx) => {
-                  const cid = c.id as string;
-                  const asignados = c.creditos_asignados as number;
-                  const extra = (c.creditos_extra as number | null) ?? 0;
-                  const rollover = c.creditos_rollover as number;
-                  const usados = usadosPorCiclo.get(cid) ?? 0;
-                  const disponibles = asignados + extra + rollover - usados;
-                  const planNombre =
-                    planMap.get(c.plan_id as string)?.nombre ?? "—";
-                  return (
-                    <TableRow key={cid}>
-                      <TableCell className="font-medium capitalize">
-                        {formatPeriodo(c.periodo as string)}
-                      </TableCell>
-                      <TableCell>{planNombre}</TableCell>
-                      <TableCell>{asignados}</TableCell>
-                      <TableCell>
-                        {extra > 0 ? `+${extra}` : "—"}
-                      </TableCell>
-                      <TableCell>{rollover}</TableCell>
-                      <TableCell>{usados}</TableCell>
-                      <TableCell>{disponibles}</TableCell>
-                      <TableCell>
-                        <Badge variant={idx === 0 ? "default" : "outline"}>
-                          {idx === 0 ? "Activo" : "Cerrado"}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </section>
+      <ClienteMediaTabs
+        assets={assetsSection}
+        topups={topupsSection}
+        timeline={timelineSection}
+        assetsCount={currentAssets.length}
+        topupsCount={topups.length}
+      />
     </div>
   );
 }
