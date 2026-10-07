@@ -52,58 +52,64 @@ export function StandRenderUpload({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function uploadFiles(files: FileList | File[]) {
-    const list = Array.from(files).filter((file) => file.size > 0);
-    if (list.length === 0) return;
+  async function uploadFiles(files: File[]) {
+    const list = files.filter((file) => file.size > 0);
+    if (list.length === 0) {
+      setError("No se seleccionó ningún archivo válido.");
+      return;
+    }
 
     setUploading(true);
     setError(null);
 
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setError("Sesión no válida. Vuelve a iniciar sesión.");
-      setUploading(false);
-      return;
-    }
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setError("Sesión no válida. Vuelve a iniciar sesión.");
+        return;
+      }
 
-    for (const file of list) {
-      const path = `${sponsorId}/admin/${Date.now()}_${safeFilename(file.name)}`;
-      const { error: uploadError } = await supabase.storage
-        .from(ARCHIVOS_BUCKET)
-        .upload(path, file, {
-          contentType: file.type || undefined,
-          upsert: false,
+      for (let i = 0; i < list.length; i++) {
+        const file = list[i]!;
+        const path = `${sponsorId}/admin/${Date.now()}_${i}_${safeFilename(file.name)}`;
+        const { error: uploadError } = await supabase.storage
+          .from(ARCHIVOS_BUCKET)
+          .upload(path, file, {
+            contentType: file.type || undefined,
+            upsert: false,
+          });
+
+        if (uploadError) {
+          setError(uploadError.message);
+          return;
+        }
+
+        const { error: insertError } = await supabase.from("archivos").insert({
+          compromiso_id: compromisoId,
+          sponsor_id: sponsorId,
+          nombre_archivo: file.name,
+          storage_path: path,
+          direccion: "admin_sube_por_sponsor",
+          tipo: TIPO_STAND_RENDER,
+          subido_por: user.id,
         });
 
-      if (uploadError) {
-        setError(uploadError.message);
-        setUploading(false);
-        return;
+        if (insertError) {
+          await supabase.storage.from(ARCHIVOS_BUCKET).remove([path]);
+          setError(insertError.message);
+          return;
+        }
       }
 
-      const { error: insertError } = await supabase.from("archivos").insert({
-        compromiso_id: compromisoId,
-        sponsor_id: sponsorId,
-        nombre_archivo: file.name,
-        storage_path: path,
-        direccion: "admin_sube_por_sponsor",
-        tipo: TIPO_STAND_RENDER,
-        subido_por: user.id,
-      });
-
-      if (insertError) {
-        await supabase.storage.from(ARCHIVOS_BUCKET).remove([path]);
-        setError(insertError.message);
-        setUploading(false);
-        return;
-      }
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al subir renders.");
+    } finally {
+      setUploading(false);
     }
-
-    setUploading(false);
-    router.refresh();
   }
 
   async function removeRender(archivo: StandRenderArchivo) {
@@ -197,9 +203,10 @@ export function StandRenderUpload({
         multiple
         className="hidden"
         onChange={(event) => {
-          const files = event.target.files;
+          // Copiar antes de limpiar: FileList es live y se vacía al resetear value.
+          const files = Array.from(event.target.files ?? []);
           event.target.value = "";
-          if (files?.length) void uploadFiles(files);
+          if (files.length > 0) void uploadFiles(files);
         }}
       />
 
