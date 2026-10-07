@@ -40,10 +40,12 @@ import {
 } from "../../compromisos/actions";
 import { EstadoSelect } from "../../compromisos/estado-select";
 import type { EstadoOption } from "../../compromisos/commitments-table";
+import { esBeneficioFormulario } from "@/lib/portal/beneficios";
 import {
   UploadPorSponsor,
   type ArchivoPorSponsor,
 } from "./upload-por-sponsor";
+import type { FormularioPorSponsor } from "./formulario-link-por-sponsor";
 
 export type BeneficioCompromisoRow = {
   id: string;
@@ -256,6 +258,8 @@ function BeneficioGroup({
   eventoSlug,
   sponsorId,
   archivosPorCompromiso,
+  formulariosPorCompromiso,
+  formulariosEventoPorNombre,
 }: {
   title: string;
   description?: string;
@@ -264,6 +268,8 @@ function BeneficioGroup({
   eventoSlug: string;
   sponsorId: string;
   archivosPorCompromiso: Map<string, ArchivoPorSponsor>;
+  formulariosPorCompromiso: Map<string, FormularioPorSponsor>;
+  formulariosEventoPorNombre?: Map<string, string>;
 }) {
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-white">
@@ -284,7 +290,7 @@ function BeneficioGroup({
               <TableHead>Beneficio</TableHead>
               <TableHead>Categoría</TableHead>
               <TableHead>Estado</TableHead>
-              <TableHead>Archivo</TableHead>
+              <TableHead>Archivo / formulario</TableHead>
               <TableHead className="w-28 text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
@@ -313,12 +319,41 @@ function BeneficioGroup({
                   />
                 </TableCell>
                 <TableCell>
-                  <UploadPorSponsor
-                    compromisoId={row.id}
-                    sponsorId={sponsorId}
-                    nombreBeneficio={row.tipo}
-                    archivoActual={archivosPorCompromiso.get(row.id) ?? null}
-                  />
+                  {esBeneficioFormulario(row.tipo) ? (
+                    <div className="max-w-[240px] space-y-1 text-xs">
+                      {formulariosPorCompromiso.get(row.id)?.url ||
+                      formulariosEventoPorNombre?.get(row.tipo) ? (
+                        <a
+                          href={
+                            formulariosPorCompromiso.get(row.id)?.url ??
+                            formulariosEventoPorNombre?.get(row.tipo) ??
+                            "#"
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block truncate text-secondary hover:underline"
+                        >
+                          {formulariosPorCompromiso.get(row.id)?.url ??
+                            formulariosEventoPorNombre?.get(row.tipo)}
+                        </a>
+                      ) : (
+                        <p className="text-muted-foreground">Sin link aún</p>
+                      )}
+                      <a
+                        href={`/admin/${eventoSlug}/compromisos`}
+                        className="text-muted-foreground hover:underline"
+                      >
+                        Editar en Compromisos (todos los sponsors)
+                      </a>
+                    </div>
+                  ) : (
+                    <UploadPorSponsor
+                      compromisoId={row.id}
+                      sponsorId={sponsorId}
+                      nombreBeneficio={row.tipo}
+                      archivoActual={archivosPorCompromiso.get(row.id) ?? null}
+                    />
+                  )}
                 </TableCell>
                 <TableCell className="text-right">
                   {canDeleteFromPanel(row) ? (
@@ -346,6 +381,8 @@ export function BeneficiosSection({
   eventoSlug,
   sponsorId,
   archivosPorCompromiso,
+  formulariosPorCompromiso,
+  formulariosEventoPorNombre,
 }: {
   compromisos: BeneficioCompromisoRow[];
   estados: EstadoOption[];
@@ -353,6 +390,8 @@ export function BeneficiosSection({
   eventoSlug: string;
   sponsorId: string;
   archivosPorCompromiso: Map<string, ArchivoPorSponsor>;
+  formulariosPorCompromiso: Map<string, FormularioPorSponsor>;
+  formulariosEventoPorNombre?: Map<string, string>;
 }) {
   const contrato = compromisos.filter(
     (row) => row.tipo_beneficio === "Contrato",
@@ -403,6 +442,8 @@ export function BeneficiosSection({
             eventoSlug={eventoSlug}
             sponsorId={sponsorId}
             archivosPorCompromiso={archivosPorCompromiso}
+            formulariosPorCompromiso={formulariosPorCompromiso}
+            formulariosEventoPorNombre={formulariosEventoPorNombre}
           />
           <BeneficioGroup
             title="Adicional / Upgrade / Tailor made"
@@ -412,6 +453,8 @@ export function BeneficiosSection({
             eventoSlug={eventoSlug}
             sponsorId={sponsorId}
             archivosPorCompromiso={archivosPorCompromiso}
+            formulariosPorCompromiso={formulariosPorCompromiso}
+            formulariosEventoPorNombre={formulariosEventoPorNombre}
           />
           {otros.length > 0 ? (
             <BeneficioGroup
@@ -422,6 +465,8 @@ export function BeneficiosSection({
               eventoSlug={eventoSlug}
               sponsorId={sponsorId}
               archivosPorCompromiso={archivosPorCompromiso}
+              formulariosPorCompromiso={formulariosPorCompromiso}
+              formulariosEventoPorNombre={formulariosEventoPorNombre}
             />
           ) : null}
         </div>

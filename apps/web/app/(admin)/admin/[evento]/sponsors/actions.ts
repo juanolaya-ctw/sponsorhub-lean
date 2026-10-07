@@ -76,3 +76,28 @@ export async function updateSponsorTier(
   revalidatePath(`/admin/${eventoSlug}/compromisos`);
   return { error: null };
 }
+
+/**
+ * Activa o desactiva el módulo CT Media en el portal del sponsor.
+ * No crea ciclos de créditos: eso se hace en /admin/[evento]/media.
+ */
+export async function updateSponsorCtMedia(
+  sponsorId: string,
+  eventoSlug: string,
+  ctMedia: boolean,
+) {
+  const { evento, supabase } = await getEventoBySlug(eventoSlug);
+  const { error } = await supabase
+    .from("sponsors")
+    .update({ ct_media: ctMedia })
+    .eq("id", sponsorId)
+    .eq("evento_id", evento.id);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/admin/${eventoSlug}/sponsors`);
+  revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
+  revalidatePath(`/admin/${eventoSlug}/media`);
+  revalidatePath(`/portal/dashboard`);
+  revalidatePath(`/portal/media`);
+  return { error: null };
+}

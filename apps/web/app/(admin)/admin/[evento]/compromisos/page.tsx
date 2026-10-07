@@ -9,11 +9,16 @@ import {
 } from "@/components/ui/table";
 import { getEventoBySlug } from "@/lib/admin/eventos";
 import { GOVTECH_EVENT_SLUG } from "@/lib/notion/client";
+import { esBeneficioFormulario } from "@/lib/portal/beneficios";
 import { TierSelect } from "../sponsors/tier-select";
 import { AddBeneficioForm } from "./add-beneficio-form";
 import { DeleteBeneficioButton } from "./delete-beneficio-button";
 import { EntregablesBulkButton } from "./entregables-bulk";
 import { EntregablesEnviados, type EntregaBatch } from "./entregables-enviados";
+import {
+  FormulariosEventoSection,
+  type FormularioEventoRow,
+} from "./formularios-evento";
 
 type Beneficio = {
   id: string;
@@ -38,7 +43,7 @@ export default async function CompromisosPage({
   const { evento: slug } = await params;
   const { evento, supabase } = await getEventoBySlug(slug);
 
-  const [catalogoResult, sponsorsResult] = await Promise.all([
+  const [catalogoResult, sponsorsResult, formulariosResult] = await Promise.all([
     supabase
       .from("catalogo_beneficios")
       .select("id, tier, categoria, beneficio, cantidad, notas")
@@ -50,13 +55,27 @@ export default async function CompromisosPage({
       .select("id, nombre, paquete")
       .eq("evento_id", evento.id)
       .order("nombre"),
+    supabase
+      .from("beneficio_formularios")
+      .select("beneficio_nombre, url")
+      .eq("evento_id", evento.id),
   ]);
 
   if (catalogoResult.error) throw new Error(catalogoResult.error.message);
   if (sponsorsResult.error) throw new Error(sponsorsResult.error.message);
+  // Si la migración 0015 aún no corrió, no tumbar la página.
+  if (formulariosResult.error && formulariosResult.error.code !== "42P01") {
+    throw new Error(formulariosResult.error.message);
+  }
 
   const beneficios = (catalogoResult.data ?? []) as Beneficio[];
   const sponsors = (sponsorsResult.data ?? []) as Sponsor[];
+  const formularioByNombre = new Map(
+    (formulariosResult.data ?? []).map((row) => [
+      row.beneficio_nombre as string,
+      row.url as string,
+    ]),
+  );
 
   // Fetch all ctw_entrega archivos for this event's sponsors
   const sponsorIds = sponsors.map((s) => s.id);
@@ -106,6 +125,35 @@ export default async function CompromisosPage({
   }, new Map<string, Beneficio[]>());
   const tiers = Array.from(porTier.keys());
   const isGovtech = evento.slug === GOVTECH_EVENT_SLUG;
+
+  // Beneficios de speaking/moderación presentes en compromisos del evento
+  // (una fila por nombre → un link para todos los sponsors).
+  const formulariosEvento: FormularioEventoRow[] = [];
+  if (sponsorIds.length > 0) {
+    const { data: compromisosData, error: compromisosError } = await supabase
+      .from("compromisos")
+      .select("tipo, sponsor_id")
+      .in("sponsor_id", sponsorIds);
+    if (compromisosError) throw new Error(compromisosError.message);
+
+    const counts = new Map<string, Set<string>>();
+    for (const row of compromisosData ?? []) {
+      const nombre = row.tipo as string;
+      if (!esBeneficioFormulario(nombre)) continue;
+      const set = counts.get(nombre) ?? new Set<string>();
+      set.add(row.sponsor_id as string);
+      counts.set(nombre, set);
+    }
+    formulariosEvento.push(
+      ...Array.from(counts.entries())
+        .sort(([a], [b]) => a.localeCompare(b, "es"))
+        .map(([beneficioNombre, set]) => ({
+          beneficioNombre,
+          sponsorsCount: set.size,
+          url: formularioByNombre.get(beneficioNombre) ?? null,
+        })),
+    );
+  }
 
   return (
     <div className="space-y-10">
@@ -178,6 +226,21 @@ export default async function CompromisosPage({
             ))}
           </div>
         )}
+      </section>
+
+      <section>
+        <h2 className="text-lg font-semibold">
+          Formularios Speaking / Moderación
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Un link por beneficio para todos los sponsors que lo tengan (p. ej.
+          Speaking Slot Main Stage, Moderación de sesión en Policy Lab).
+        </p>
+        <FormulariosEventoSection
+          eventoId={evento.id}
+          eventoSlug={evento.slug}
+          rows={formulariosEvento}
+        />
       </section>
 
       <section>

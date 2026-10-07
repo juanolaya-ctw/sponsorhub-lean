@@ -7,6 +7,8 @@ export const TIPO_LOGO_LEGACY = "logo";
 export const TIPO_NEWSLETTER = "newsletter";
 export const TIPO_LINKEDIN_INSTAGRAM = "linkedin_instagram";
 export const TIPO_SPEAKER_FORM = "speaker_form_completado";
+/** Link al formulario externo (Tally, etc.) publicado por CT desde el admin. */
+export const TIPO_FORMULARIO_URL = "formulario_externo";
 export const TIPO_DECK_ADDONS = "Deck Add-ons";
 
 export const ENTREGABLE_TIPOS = [
@@ -91,6 +93,9 @@ export type BeneficioPortal = {
   personas: AccesoPersona[];
   logoCargado: boolean;
   logoCompartido: ArchivoPortal | null;
+  /** URL del formulario externo (Speaking / Moderación) si CT la publicó. */
+  formularioUrl: string | null;
+  formularioArchivoId: string | null;
 };
 
 type CatalogoJoin = {
@@ -137,19 +142,25 @@ function resolverTipoFormulario(
   return tipoFormulario(beneficioNombre);
 }
 
+export function esBeneficioFormulario(nombre: string): boolean {
+  const value = nombre.toLowerCase();
+  return (
+    value.includes("speaker") ||
+    value.includes("speaking") ||
+    value.includes("workshop") ||
+    value.includes("panel") ||
+    value.includes("moderac") ||
+    value.includes("policy lab")
+  );
+}
+
 export function iconoCategoria(categoria: string): string {
   const value = categoria.toLowerCase();
   if (value.includes("branding") || value.includes("logo")) return "🎨";
   if (value.includes("acceso")) return "👥";
   if (value.includes("newsletter")) return "📧";
   if (value.includes("stand")) return "🏗️";
-  if (
-    value.includes("speaker") ||
-    value.includes("workshop") ||
-    value.includes("panel")
-  ) {
-    return "🎤";
-  }
+  if (esBeneficioFormulario(categoria)) return "🎤";
   if (value.includes("descuento") || value.includes("add-on")) return "💰";
   return "📦";
 }
@@ -159,13 +170,7 @@ export function tipoFormulario(categoria: string): TipoFormulario {
   if (value.includes("branding") || value.includes("logo")) return "branding";
   if (value.includes("acceso")) return "accesos";
   if (value.includes("newsletter")) return "newsletter";
-  if (
-    value.includes("speaker") ||
-    value.includes("workshop") ||
-    value.includes("panel")
-  ) {
-    return "speaker";
-  }
+  if (esBeneficioFormulario(categoria)) return "speaker";
   if (value.includes("descuento") || value.includes("add-on")) return "addon";
   if (/linkedin|instagram|contenido/i.test(categoria)) {
     return "linkedin_instagram";
@@ -409,6 +414,12 @@ function mapCompromiso(
   const cantidad = catalogo?.cantidad ?? null;
   const archivosDel = archivos.filter((item) => item.compromiso_id === row.id);
   const personasDel = personas.filter((item) => item.compromiso_id === row.id);
+  const formulario =
+    archivosDel.find(
+      (item) =>
+        item.tipo === TIPO_FORMULARIO_URL &&
+        /^https?:\/\//i.test(item.storage_path),
+    ) ?? null;
 
   return {
     compromisoId: row.id,
@@ -426,6 +437,8 @@ function mapCompromiso(
     personas: personasDel,
     logoCargado: false,
     logoCompartido: null,
+    formularioUrl: formulario?.storage_path ?? null,
+    formularioArchivoId: formulario?.id ?? null,
   };
 }
 
@@ -491,40 +504,78 @@ export async function loadPortalBeneficios(
   supabase: SupabaseClient,
   sponsorId: string,
 ): Promise<BeneficioPortal[]> {
-  const [compromisosResult, archivosResult, personasResult] = await Promise.all([
-    supabase
-      .from("compromisos")
-      .select(
-        "id, tipo, tipo_beneficio, categoria_beneficio, catalogo_beneficios(beneficio, categoria, cantidad, detalle_solicitud, notas, orden), estados_compromiso(nombre, color, es_estado_final)",
-      )
-      .eq("sponsor_id", sponsorId),
-    supabase
-      .from("archivos")
-      .select("id, tipo, nombre_archivo, storage_path, compromiso_id, created_at")
-      .eq("sponsor_id", sponsorId)
-      .in("direccion", ["sponsor_sube", "admin_sube_por_sponsor"])
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("accesos_personas")
-      .select(
-        "id, nombre, apellido, email, documento_identidad, linkedin_url, rol_ecosistema, numero_celular, pais_residencia, empresa, industria, nivel_cargo, tipo, compromiso_id",
-      )
-      .eq("sponsor_id", sponsorId)
-      .order("created_at", { ascending: true }),
-  ]);
+  const [compromisosResult, archivosResult, personasResult, sponsorResult] =
+    await Promise.all([
+      supabase
+        .from("compromisos")
+        .select(
+          "id, tipo, tipo_beneficio, categoria_beneficio, catalogo_beneficios(beneficio, categoria, cantidad, detalle_solicitud, notas, orden), estados_compromiso(nombre, color, es_estado_final)",
+        )
+        .eq("sponsor_id", sponsorId),
+      supabase
+        .from("archivos")
+        .select("id, tipo, nombre_archivo, storage_path, compromiso_id, created_at")
+        .eq("sponsor_id", sponsorId)
+        .in("direccion", ["sponsor_sube", "admin_sube_por_sponsor"])
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("accesos_personas")
+        .select(
+          "id, nombre, apellido, email, documento_identidad, linkedin_url, rol_ecosistema, numero_celular, pais_residencia, empresa, industria, nivel_cargo, tipo, compromiso_id",
+        )
+        .eq("sponsor_id", sponsorId)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("sponsors")
+        .select("evento_id")
+        .eq("id", sponsorId)
+        .maybeSingle(),
+    ]);
 
   if (compromisosResult.error) throw new Error(compromisosResult.error.message);
   if (archivosResult.error) throw new Error(archivosResult.error.message);
   if (personasResult.error) throw new Error(personasResult.error.message);
+  if (sponsorResult.error) throw new Error(sponsorResult.error.message);
 
   const archivos = (archivosResult.data ?? []) as ArchivoPortal[];
   const personas = (personasResult.data ?? []) as AccesoPersona[];
-  const mapped = attachLogosCompartidos(
+  let mapped = attachLogosCompartidos(
     ((compromisosResult.data ?? []) as CompromisoRow[]).map((row) =>
       mapCompromiso(row, archivos, personas),
     ),
     archivos,
   );
+
+  // Links globales por evento (Speaking / Moderación): rellenan si no hay
+  // override por compromiso.
+  const eventoId = sponsorResult.data?.evento_id as string | null | undefined;
+  if (eventoId) {
+    const { data: formularios, error: formulariosError } = await supabase
+      .from("beneficio_formularios")
+      .select("beneficio_nombre, url")
+      .eq("evento_id", eventoId);
+    if (formulariosError && formulariosError.code !== "42P01") {
+      throw new Error(formulariosError.message);
+    }
+    if (formularios && formularios.length > 0) {
+      const byNombre = new Map(
+        formularios.map((row) => [
+          row.beneficio_nombre as string,
+          row.url as string,
+        ]),
+      );
+      mapped = mapped.map((item) => {
+        if (item.formularioUrl || item.tipo !== "speaker") return item;
+        const url = byNombre.get(item.beneficio) ?? null;
+        if (!url) return item;
+        return {
+          ...item,
+          formularioUrl: url,
+          formularioArchivoId: null,
+        };
+      });
+    }
+  }
 
   return mapped.sort((a, b) => a.categoria.localeCompare(b.categoria, "es"));
 }

@@ -43,7 +43,7 @@ export default async function MediaPage({
   const [sponsorsResult, planesResult] = await Promise.all([
     admin
       .from("sponsors")
-      .select("id, nombre")
+      .select("id, nombre, ct_media")
       .eq("evento_id", evento.id)
       .order("nombre"),
     admin
@@ -105,19 +105,32 @@ export default async function MediaPage({
     );
   }
 
+  // Solo sponsors marcados ct_media (o con ciclo) aparecen como "con Media".
+  // Ciclos huérfanos (ct_media=false) no se listan: el portal ya no los muestra.
+  const ctMediaIds = new Set(
+    (sponsorsResult.data ?? [])
+      .filter((s) => s.ct_media === true)
+      .map((s) => s.id as string),
+  );
+
   const sponsorsConMedia: SponsorConMedia[] = Array.from(
     latestBySponsor.entries(),
-  ).map(([sponsorId, cycle]) => ({
-    sponsorId,
-    sponsorNombre: sponsorMap.get(sponsorId) ?? "—",
-    planNombre: planMap.get(cycle.plan_id as string) ?? "—",
-    periodo: cycle.periodo as string,
-    creditosAsignados: cycle.creditos_asignados as number,
-    creditosRollover: cycle.creditos_rollover as number,
-    creditosUsados: usadosPorCiclo.get(cycle.id as string) ?? 0,
-  }));
+  )
+    .filter(([sponsorId]) => ctMediaIds.has(sponsorId))
+    .map(([sponsorId, cycle]) => ({
+      sponsorId,
+      sponsorNombre: sponsorMap.get(sponsorId) ?? "—",
+      planNombre: planMap.get(cycle.plan_id as string) ?? "—",
+      periodo: cycle.periodo as string,
+      creditosAsignados: cycle.creditos_asignados as number,
+      creditosRollover: cycle.creditos_rollover as number,
+      creditosUsados: usadosPorCiclo.get(cycle.id as string) ?? 0,
+    }));
 
-  const activatedIds = new Set(latestBySponsor.keys());
+  // Sponsors con flag pero sin ciclo aún, o sin flag, pueden activarse.
+  const activatedIds = new Set(
+    sponsorsConMedia.map((row) => row.sponsorId),
+  );
   const sponsoresSinMedia: SponsorSinMedia[] = (sponsorsResult.data ?? [])
     .filter((s) => !activatedIds.has(s.id as string))
     .map((s) => ({ id: s.id as string, nombre: s.nombre as string }));

@@ -88,19 +88,21 @@ export default async function SponsorDashboardPage() {
       .eq("sponsor_id", sponsor.sponsorId)
       .eq("direccion", "ctw_entrega")
       .order("created_at", { ascending: false }),
-    supabase
-      .from("media_billing_cycles")
-      .select("id, creditos_asignados, creditos_rollover")
-      .eq("sponsor_id", sponsor.sponsorId)
-      .order("periodo", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    sponsor.ctMedia
+      ? supabase
+          .from("media_billing_cycles")
+          .select("id, creditos_asignados, creditos_rollover")
+          .eq("sponsor_id", sponsor.sponsorId)
+          .order("periodo", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ]);
 
   if (timelineResult.error) throw new Error(timelineResult.error.message);
   if (ctResult.error) throw new Error(ctResult.error.message);
 
-  const currentMediaCycle = mediaCycleResult.data ?? null;
+  const currentMediaCycle = sponsor.ctMedia ? mediaCycleResult.data ?? null : null;
   let mediaDisponibles: number | null = null;
   let mediaTotalCreditos: number | null = null;
   if (currentMediaCycle) {

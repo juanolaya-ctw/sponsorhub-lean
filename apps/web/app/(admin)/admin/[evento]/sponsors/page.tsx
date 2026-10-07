@@ -14,6 +14,7 @@ type SponsorRow = {
   id: string;
   nombre: string;
   paquete: string | null;
+  ct_media: boolean | null;
   contacto_email: string | null;
   created_at: string;
 };
@@ -37,7 +38,9 @@ export default async function SponsorsPage({
 
   const { data, error } = await supabase
     .from("sponsors")
-    .select("id, nombre, paquete, contacto_email, created_at, eventos!inner(slug)")
+    .select(
+      "id, nombre, paquete, ct_media, contacto_email, created_at, eventos!inner(slug)",
+    )
     .eq("eventos.slug", slug)
     .order("nombre");
 
@@ -69,6 +72,7 @@ export default async function SponsorsPage({
               <TableRow>
                 <TableHead>Nombre</TableHead>
                 <TableHead>Paquete / tier</TableHead>
+                <TableHead>CT Media</TableHead>
                 <TableHead>Contacto</TableHead>
                 <TableHead>Creado</TableHead>
                 <TableHead>Acciones</TableHead>
@@ -79,6 +83,15 @@ export default async function SponsorsPage({
                 <TableRow key={sponsor.id}>
                   <TableCell className="font-medium">{sponsor.nombre}</TableCell>
                   <TableCell>{sponsor.paquete ?? "—"}</TableCell>
+                  <TableCell>
+                    {sponsor.ct_media ? (
+                      <span className="rounded-full bg-[#42B3F3]/15 px-2 py-0.5 text-xs font-medium text-[#0b6ea8]">
+                        Media
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                   <TableCell>{sponsor.contacto_email ?? "—"}</TableCell>
                   <TableCell>{formatDateTime(sponsor.created_at)}</TableCell>
                   <TableCell>

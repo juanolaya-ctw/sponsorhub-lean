@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ENTREGABLE_TIPOS } from "@/lib/portal/beneficios";
+import { ENTREGABLE_TIPOS, TIPO_FORMULARIO_URL } from "@/lib/portal/beneficios";
 
 const BUCKET = "sponsorhub-archivos";
 
@@ -177,6 +177,83 @@ export async function saveEntregaLink(
   if (insertError) return { error: insertError.message };
 
   revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
+  return { error: null };
+}
+
+export async function saveFormularioLink(
+  compromisoId: string,
+  sponsorId: string,
+  eventoSlug: string,
+  url: string,
+  nombreBeneficio: string,
+  archivoId: string | null,
+) {
+  const { supabase, user } = await requireAdmin();
+  try {
+    new URL(url);
+  } catch {
+    return { error: "La URL no es válida." };
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    return { error: "El link debe empezar con http:// o https://." };
+  }
+
+  const { data: compromiso, error: compromisoError } = await supabase
+    .from("compromisos")
+    .select("id, sponsor_id")
+    .eq("id", compromisoId)
+    .eq("sponsor_id", sponsorId)
+    .maybeSingle();
+  if (compromisoError || !compromiso) {
+    return {
+      error: compromisoError?.message ?? "Beneficio no encontrado.",
+    };
+  }
+
+  const payload = {
+    sponsor_id: sponsorId,
+    compromiso_id: compromisoId,
+    direccion: "admin_sube_por_sponsor" as const,
+    tipo: TIPO_FORMULARIO_URL,
+    nombre_archivo: `Formulario: ${nombreBeneficio}`,
+    storage_path: url,
+    subido_por: user.id,
+  };
+
+  if (archivoId) {
+    const { error } = await supabase
+      .from("archivos")
+      .update(payload)
+      .eq("id", archivoId)
+      .eq("sponsor_id", sponsorId);
+    if (error) return { error: error.message };
+  } else {
+    const { error } = await supabase.from("archivos").insert(payload);
+    if (error) return { error: error.message };
+  }
+
+  revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
+  revalidatePath(`/portal/recursos/${compromisoId}`);
+  revalidatePath(`/portal/dashboard`);
+  return { error: null };
+}
+
+export async function deleteFormularioLink(
+  archivoId: string,
+  sponsorId: string,
+  eventoSlug: string,
+) {
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase
+    .from("archivos")
+    .delete()
+    .eq("id", archivoId)
+    .eq("sponsor_id", sponsorId)
+    .eq("tipo", TIPO_FORMULARIO_URL);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
+  revalidatePath(`/portal/dashboard`);
   return { error: null };
 }
 

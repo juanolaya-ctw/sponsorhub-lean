@@ -18,6 +18,7 @@ import {
   loadPortalBeneficios,
   parseNewsletter,
   requiereAccion,
+  TIPO_FORMULARIO_URL,
 } from "@/lib/portal/beneficios";
 import { EntregablesCtSection } from "./entregables-ct";
 import { InsumosAdminList } from "./insumos-admin-list";
@@ -25,6 +26,7 @@ import {
   BeneficiosSection,
   type BeneficioCompromisoRow,
 } from "./beneficios-section";
+import type { FormularioPorSponsor } from "./formulario-link-por-sponsor";
 import {
   CommitmentsTable,
   type CompromisoRow,
@@ -32,6 +34,7 @@ import {
 } from "../../compromisos/commitments-table";
 import { DeleteSponsorButton } from "../delete-sponsor-button";
 import { TierSelect } from "../tier-select";
+import { CtMediaToggle } from "../ct-media-toggle";
 import type { ArchivoPorSponsor } from "./upload-por-sponsor";
 
 const BUCKET = "sponsorhub-archivos";
@@ -41,6 +44,7 @@ type SponsorDetalle = {
   id: string;
   nombre: string;
   paquete: string | null;
+  ct_media: boolean;
   contacto_nombre: string | null;
   contacto_email: string | null;
   contacto_telefono: string | null;
@@ -96,7 +100,7 @@ export default async function SponsorDetallePage({
   const { data: sponsorData, error: sponsorError } = await supabase
     .from("sponsors")
     .select(
-      "id, nombre, paquete, contacto_nombre, contacto_email, contacto_telefono",
+      "id, nombre, paquete, ct_media, contacto_nombre, contacto_email, contacto_telefono",
     )
     .eq("id", id)
     .eq("evento_id", evento.id)
@@ -114,6 +118,7 @@ export default async function SponsorDetallePage({
     tiersResult,
     accesosResult,
     archivosBeneficioResult,
+    formulariosEventoResult,
   ] = await Promise.all([
     supabase
       .from("archivos")
@@ -153,11 +158,15 @@ export default async function SponsorDetallePage({
       .order("created_at"),
     supabase
       .from("archivos")
-      .select("id, compromiso_id, nombre_archivo, storage_path, created_at")
+      .select("id, tipo, compromiso_id, nombre_archivo, storage_path, created_at")
       .eq("sponsor_id", sponsor.id)
       .in("direccion", ["sponsor_sube", "admin_sube_por_sponsor"])
       .not("compromiso_id", "is", null)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("beneficio_formularios")
+      .select("beneficio_nombre, url")
+      .eq("evento_id", evento.id),
   ]);
 
   if (archivosResult.error) throw new Error(archivosResult.error.message);
@@ -169,6 +178,18 @@ export default async function SponsorDetallePage({
   if (archivosBeneficioResult.error) {
     throw new Error(archivosBeneficioResult.error.message);
   }
+  if (
+    formulariosEventoResult.error &&
+    formulariosEventoResult.error.code !== "42P01"
+  ) {
+    throw new Error(formulariosEventoResult.error.message);
+  }
+  const formulariosEventoPorNombre = new Map(
+    (formulariosEventoResult.data ?? []).map((row) => [
+      row.beneficio_nombre as string,
+      row.url as string,
+    ]),
+  );
 
   const archivosData = archivosResult.data;
   const archivos = (archivosData ?? []) as ArchivoSponsor[];
@@ -185,9 +206,24 @@ export default async function SponsorDetallePage({
 
   // Más reciente por compromiso; preferir archivo real sobre markers JSON.
   const archivosPorCompromiso = new Map<string, ArchivoPorSponsor>();
+  const formulariosPorCompromiso = new Map<string, FormularioPorSponsor>();
   for (const row of archivosBeneficioResult.data ?? []) {
     const compromisoId = row.compromiso_id as string | null;
     if (!compromisoId) continue;
+
+    if (
+      row.tipo === TIPO_FORMULARIO_URL &&
+      /^https?:\/\//i.test(row.storage_path as string)
+    ) {
+      if (!formulariosPorCompromiso.has(compromisoId)) {
+        formulariosPorCompromiso.set(compromisoId, {
+          id: row.id as string,
+          url: row.storage_path as string,
+        });
+      }
+      continue;
+    }
+
     const candidate: ArchivoPorSponsor = {
       id: row.id as string,
       nombre: row.nombre_archivo as string,
@@ -324,6 +360,11 @@ export default async function SponsorDetallePage({
               eventoSlug={evento.slug}
               currentTier={sponsor.paquete}
               tiers={tiers}
+            />
+            <CtMediaToggle
+              sponsorId={sponsor.id}
+              eventoSlug={evento.slug}
+              enabled={sponsor.ct_media === true}
             />
             <DeleteSponsorButton
               sponsorId={sponsor.id}
@@ -495,6 +536,8 @@ export default async function SponsorDetallePage({
           eventoSlug={evento.slug}
           sponsorId={sponsor.id}
           archivosPorCompromiso={archivosPorCompromiso}
+          formulariosPorCompromiso={formulariosPorCompromiso}
+          formulariosEventoPorNombre={formulariosEventoPorNombre}
         />
       ) : (
         <section>

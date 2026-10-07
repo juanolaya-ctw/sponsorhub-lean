@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireSponsor } from "@/lib/auth/require-admin";
 import { getSponsorContext } from "@/lib/portal/sponsor";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,10 @@ export default async function PortalMediaPage() {
     requireSponsor(),
     getSponsorContext(),
   ]);
+
+  if (!sponsor.ctMedia) {
+    redirect("/portal/dashboard");
+  }
 
   const cyclesResult = await supabase
     .from("media_billing_cycles")

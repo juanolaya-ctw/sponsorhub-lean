@@ -53,7 +53,16 @@ export async function activarMediaSponsor(
 
   if (error) return { error: error.message };
 
+  // Marca al sponsor como CT Media para que el portal muestre el módulo.
+  const { error: flagError } = await admin
+    .from("sponsors")
+    .update({ ct_media: true })
+    .eq("id", sponsorId);
+  if (flagError) return { error: flagError.message };
+
   revalidateMedia(slug, sponsorId);
+  revalidatePath(`/admin/${slug}/sponsors`);
+  revalidatePath(`/admin/${slug}/sponsors/${sponsorId}`);
   return { error: null, success: true };
 }
 

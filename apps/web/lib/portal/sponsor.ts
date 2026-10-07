@@ -7,13 +7,15 @@ type SponsorContext = {
   sponsorNombre: string;
   paquete: string | null;
   eventoId: string | null;
+  /** Solo sponsors con CT Media activado ven /portal/media y el widget. */
+  ctMedia: boolean;
 };
 
 export const getSponsorContext = cache(async (): Promise<SponsorContext> => {
   const { supabase, user } = await requireSponsor();
   const { data, error } = await supabase
     .from("sponsor_usuarios")
-    .select("sponsor_id, sponsors(nombre, paquete, evento_id)")
+    .select("sponsor_id, sponsors(nombre, paquete, evento_id, ct_media)")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -25,11 +27,13 @@ export const getSponsorContext = cache(async (): Promise<SponsorContext> => {
     nombre: string;
     paquete: string | null;
     evento_id: string | null;
+    ct_media: boolean | null;
   } | null;
   return {
     sponsorId: data.sponsor_id as string,
     sponsorNombre: sponsor?.nombre ?? "Sponsor",
     paquete: sponsor?.paquete ?? null,
     eventoId: sponsor?.evento_id ?? null,
+    ctMedia: sponsor?.ct_media === true,
   };
 });

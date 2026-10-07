@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/require-admin";
+import { esBeneficioFormulario } from "@/lib/portal/beneficios";
 
 export type BeneficioActionState = {
   error: string | null;
@@ -208,5 +209,66 @@ export async function deleteCompromisoSponsor(
   if (error) return { error: error.message };
 
   revalidateCompromisos(eventoSlug, data.sponsor_id as string);
+  return { error: null };
+}
+
+/**
+ * Guarda el link de formulario a nivel de evento + nombre de beneficio.
+ * Aplica a todos los sponsors que tengan ese compromiso.
+ */
+export async function upsertBeneficioFormulario(
+  eventoId: string,
+  eventoSlug: string,
+  beneficioNombre: string,
+  url: string,
+) {
+  const { supabase } = await requireAdmin();
+  const nombre = beneficioNombre.trim();
+  if (!nombre || !esBeneficioFormulario(nombre)) {
+    return { error: "Este beneficio no admite formulario externo." };
+  }
+  try {
+    new URL(url);
+  } catch {
+    return { error: "La URL no es válida." };
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    return { error: "El link debe empezar con http:// o https://." };
+  }
+
+  const { error } = await supabase.from("beneficio_formularios").upsert(
+    {
+      evento_id: eventoId,
+      beneficio_nombre: nombre,
+      url: url.trim(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "evento_id,beneficio_nombre" },
+  );
+  if (error) return { error: error.message };
+
+  revalidatePath(`/admin/${eventoSlug}/compromisos`);
+  revalidatePath(`/admin/${eventoSlug}/sponsors`);
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/recursos");
+  return { error: null };
+}
+
+export async function deleteBeneficioFormulario(
+  eventoId: string,
+  eventoSlug: string,
+  beneficioNombre: string,
+) {
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase
+    .from("beneficio_formularios")
+    .delete()
+    .eq("evento_id", eventoId)
+    .eq("beneficio_nombre", beneficioNombre);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/admin/${eventoSlug}/compromisos`);
+  revalidatePath("/portal/dashboard");
+  revalidatePath("/portal/recursos");
   return { error: null };
 }

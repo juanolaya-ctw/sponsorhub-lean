@@ -256,6 +256,8 @@ export default async function BeneficioDetallePage({
           sponsorId={sponsor.sponsorId}
           userId={user.id}
           compromisoId={beneficio.compromisoId}
+          beneficioNombre={beneficio.beneficio}
+          formularioUrl={beneficio.formularioUrl}
           completado={beneficio.progreso.completed}
           archivoId={
             beneficio.archivos.find((item) => item.tipo === TIPO_SPEAKER_FORM)
