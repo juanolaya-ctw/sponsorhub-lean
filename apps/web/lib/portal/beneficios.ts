@@ -9,7 +9,17 @@ export const TIPO_LINKEDIN_INSTAGRAM = "linkedin_instagram";
 export const TIPO_SPEAKER_FORM = "speaker_form_completado";
 /** Link al formulario externo (Tally, etc.) publicado por CT desde el admin. */
 export const TIPO_FORMULARIO_URL = "formulario_externo";
+export const TIPO_STAND_RENDER = "stand_render";
 export const TIPO_DECK_ADDONS = "Deck Add-ons";
+
+export type StandDecision = "aprobado" | "cambios_solicitados";
+
+export type StandRevision = {
+  id: string;
+  decision: StandDecision;
+  comentario: string | null;
+  created_at: string;
+};
 
 export const ENTREGABLE_TIPOS = [
   "Deck Add-ons",
@@ -26,6 +36,7 @@ export type TipoFormulario =
   | "newsletter"
   | "linkedin_instagram"
   | "speaker"
+  | "stand"
   | "addon"
   | "informativo";
 
@@ -96,6 +107,8 @@ export type BeneficioPortal = {
   /** URL del formulario externo (Speaking / Moderación) si CT la publicó. */
   formularioUrl: string | null;
   formularioArchivoId: string | null;
+  /** Última decisión del sponsor sobre los renders del stand. */
+  standRevision: StandRevision | null;
 };
 
 type CatalogoJoin = {
@@ -154,6 +167,10 @@ export function esBeneficioFormulario(nombre: string): boolean {
   );
 }
 
+export function esBeneficioStand(nombre: string): boolean {
+  return nombre.toLowerCase().includes("stand");
+}
+
 export function iconoCategoria(categoria: string): string {
   const value = categoria.toLowerCase();
   if (value.includes("branding") || value.includes("logo")) return "🎨";
@@ -170,6 +187,7 @@ export function tipoFormulario(categoria: string): TipoFormulario {
   if (value.includes("branding") || value.includes("logo")) return "branding";
   if (value.includes("acceso")) return "accesos";
   if (value.includes("newsletter")) return "newsletter";
+  if (esBeneficioStand(categoria)) return "stand";
   if (esBeneficioFormulario(categoria)) return "speaker";
   if (value.includes("descuento") || value.includes("add-on")) return "addon";
   if (/linkedin|instagram|contenido/i.test(categoria)) {
@@ -290,6 +308,7 @@ export function progresoBeneficio(
   cantidad: number | null,
   archivos: ArchivoPortal[],
   personas: AccesoPersona[],
+  standRevision: StandRevision | null = null,
 ): ProgresoBeneficio {
   if (tipo === "informativo" || tipo === "addon") {
     return {
@@ -301,6 +320,51 @@ export function progresoBeneficio(
         tipo === "addon"
           ? "ColombiaTech comparte el deck aquí"
           : "No requiere acción",
+      multiple: false,
+    };
+  }
+
+  if (tipo === "stand") {
+    const renders = archivos.filter(
+      (item) =>
+        item.tipo === TIPO_STAND_RENDER && isStoredObject(item.storage_path),
+    );
+    if (standRevision?.decision === "aprobado") {
+      return {
+        current: 1,
+        total: 1,
+        pct: 100,
+        completed: true,
+        label: "Stand aprobado",
+        multiple: false,
+      };
+    }
+    if (standRevision?.decision === "cambios_solicitados") {
+      return {
+        current: 0,
+        total: 1,
+        pct: 0,
+        completed: false,
+        label: "Cambios solicitados",
+        multiple: false,
+      };
+    }
+    if (renders.length === 0) {
+      return {
+        current: 0,
+        total: 1,
+        pct: 0,
+        completed: false,
+        label: "Esperando render",
+        multiple: false,
+      };
+    }
+    return {
+      current: 0,
+      total: 1,
+      pct: 0,
+      completed: false,
+      label: "Pendiente de aprobación",
       multiple: false,
     };
   }
@@ -403,6 +467,7 @@ function mapCompromiso(
   row: CompromisoRow,
   archivos: ArchivoPortal[],
   personas: AccesoPersona[],
+  standRevision: StandRevision | null = null,
 ): BeneficioPortal {
   const catalogo = one(row.catalogo_beneficios);
   const estado = one(row.estados_compromiso);
@@ -420,6 +485,7 @@ function mapCompromiso(
         item.tipo === TIPO_FORMULARIO_URL &&
         /^https?:\/\//i.test(item.storage_path),
     ) ?? null;
+  const revision = tipo === "stand" ? standRevision : null;
 
   return {
     compromisoId: row.id,
@@ -432,13 +498,20 @@ function mapCompromiso(
     estadoColor: estado?.color ?? null,
     estadoEsFinal: Boolean(estado?.es_estado_final),
     tipo,
-    progreso: progresoBeneficio(tipo, cantidad, archivosDel, personasDel),
+    progreso: progresoBeneficio(
+      tipo,
+      cantidad,
+      archivosDel,
+      personasDel,
+      revision,
+    ),
     archivos: archivosDel,
     personas: personasDel,
     logoCargado: false,
     logoCompartido: null,
     formularioUrl: formulario?.storage_path ?? null,
     formularioArchivoId: formulario?.id ?? null,
+    standRevision: revision,
   };
 }
 
@@ -539,9 +612,43 @@ export async function loadPortalBeneficios(
 
   const archivos = (archivosResult.data ?? []) as ArchivoPortal[];
   const personas = (personasResult.data ?? []) as AccesoPersona[];
+  const compromisoRows = (compromisosResult.data ?? []) as CompromisoRow[];
+
+  const revisionesByCompromiso = new Map<string, StandRevision>();
+  const compromisoIds = compromisoRows.map((row) => row.id);
+  if (compromisoIds.length > 0) {
+    const { data: revisiones, error: revisionesError } = await supabase
+      .from("stand_revisiones")
+      .select("id, compromiso_id, decision, comentario, created_at")
+      .in("compromiso_id", compromisoIds)
+      .order("created_at", { ascending: false });
+    if (revisionesError && revisionesError.code !== "42P01") {
+      throw new Error(revisionesError.message);
+    }
+    for (const row of revisiones ?? []) {
+      const compromisoId = row.compromiso_id as string;
+      if (revisionesByCompromiso.has(compromisoId)) continue;
+      const decision = row.decision as string;
+      if (decision !== "aprobado" && decision !== "cambios_solicitados") {
+        continue;
+      }
+      revisionesByCompromiso.set(compromisoId, {
+        id: row.id as string,
+        decision,
+        comentario: (row.comentario as string | null) ?? null,
+        created_at: row.created_at as string,
+      });
+    }
+  }
+
   let mapped = attachLogosCompartidos(
-    ((compromisosResult.data ?? []) as CompromisoRow[]).map((row) =>
-      mapCompromiso(row, archivos, personas),
+    compromisoRows.map((row) =>
+      mapCompromiso(
+        row,
+        archivos,
+        personas,
+        revisionesByCompromiso.get(row.id) ?? null,
+      ),
     ),
     archivos,
   );

@@ -40,12 +40,20 @@ import {
 } from "../../compromisos/actions";
 import { EstadoSelect } from "../../compromisos/estado-select";
 import type { EstadoOption } from "../../compromisos/commitments-table";
-import { esBeneficioFormulario } from "@/lib/portal/beneficios";
+import {
+  esBeneficioFormulario,
+  esBeneficioStand,
+  type StandRevision,
+} from "@/lib/portal/beneficios";
 import {
   UploadPorSponsor,
   type ArchivoPorSponsor,
 } from "./upload-por-sponsor";
 import type { FormularioPorSponsor } from "./formulario-link-por-sponsor";
+import {
+  StandRenderUpload,
+  type StandRenderArchivo,
+} from "./stand-render-upload";
 
 export type BeneficioCompromisoRow = {
   id: string;
@@ -258,6 +266,8 @@ function BeneficioGroup({
   eventoSlug,
   sponsorId,
   archivosPorCompromiso,
+  standRendersPorCompromiso,
+  standRevisionPorCompromiso,
   formulariosPorCompromiso,
   formulariosEventoPorNombre,
 }: {
@@ -268,6 +278,8 @@ function BeneficioGroup({
   eventoSlug: string;
   sponsorId: string;
   archivosPorCompromiso: Map<string, ArchivoPorSponsor>;
+  standRendersPorCompromiso: Map<string, StandRenderArchivo[]>;
+  standRevisionPorCompromiso: Map<string, StandRevision>;
   formulariosPorCompromiso: Map<string, FormularioPorSponsor>;
   formulariosEventoPorNombre?: Map<string, string>;
 }) {
@@ -346,6 +358,15 @@ function BeneficioGroup({
                         Editar en Compromisos (todos los sponsors)
                       </a>
                     </div>
+                  ) : esBeneficioStand(row.tipo) ? (
+                    <StandRenderUpload
+                      compromisoId={row.id}
+                      sponsorId={sponsorId}
+                      renders={standRendersPorCompromiso.get(row.id) ?? []}
+                      revision={
+                        standRevisionPorCompromiso.get(row.id) ?? null
+                      }
+                    />
                   ) : (
                     <UploadPorSponsor
                       compromisoId={row.id}
@@ -381,6 +402,8 @@ export function BeneficiosSection({
   eventoSlug,
   sponsorId,
   archivosPorCompromiso,
+  standRendersPorCompromiso,
+  standRevisionPorCompromiso,
   formulariosPorCompromiso,
   formulariosEventoPorNombre,
 }: {
@@ -390,6 +413,8 @@ export function BeneficiosSection({
   eventoSlug: string;
   sponsorId: string;
   archivosPorCompromiso: Map<string, ArchivoPorSponsor>;
+  standRendersPorCompromiso: Map<string, StandRenderArchivo[]>;
+  standRevisionPorCompromiso: Map<string, StandRevision>;
   formulariosPorCompromiso: Map<string, FormularioPorSponsor>;
   formulariosEventoPorNombre?: Map<string, string>;
 }) {
@@ -442,6 +467,8 @@ export function BeneficiosSection({
             eventoSlug={eventoSlug}
             sponsorId={sponsorId}
             archivosPorCompromiso={archivosPorCompromiso}
+            standRendersPorCompromiso={standRendersPorCompromiso}
+            standRevisionPorCompromiso={standRevisionPorCompromiso}
             formulariosPorCompromiso={formulariosPorCompromiso}
             formulariosEventoPorNombre={formulariosEventoPorNombre}
           />
@@ -453,6 +480,8 @@ export function BeneficiosSection({
             eventoSlug={eventoSlug}
             sponsorId={sponsorId}
             archivosPorCompromiso={archivosPorCompromiso}
+            standRendersPorCompromiso={standRendersPorCompromiso}
+            standRevisionPorCompromiso={standRevisionPorCompromiso}
             formulariosPorCompromiso={formulariosPorCompromiso}
             formulariosEventoPorNombre={formulariosEventoPorNombre}
           />
@@ -465,6 +494,8 @@ export function BeneficiosSection({
               eventoSlug={eventoSlug}
               sponsorId={sponsorId}
               archivosPorCompromiso={archivosPorCompromiso}
+              standRendersPorCompromiso={standRendersPorCompromiso}
+              standRevisionPorCompromiso={standRevisionPorCompromiso}
               formulariosPorCompromiso={formulariosPorCompromiso}
               formulariosEventoPorNombre={formulariosEventoPorNombre}
             />

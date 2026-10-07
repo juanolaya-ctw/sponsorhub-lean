@@ -14,6 +14,7 @@ import {
   TIPO_LOGO,
   TIPO_NEWSLETTER,
   TIPO_SPEAKER_FORM,
+  TIPO_STAND_RENDER,
 } from "@/lib/portal/beneficios";
 
 export type ArchivoPorSponsor = {
@@ -28,6 +29,7 @@ function tipoDesdeBeneficio(nombreBeneficio: string): string {
   if (tipo === "newsletter") return TIPO_NEWSLETTER;
   if (tipo === "linkedin_instagram") return TIPO_LINKEDIN_INSTAGRAM;
   if (tipo === "speaker") return TIPO_SPEAKER_FORM;
+  if (tipo === "stand") return TIPO_STAND_RENDER;
   return "archivo";
 }
 

@@ -16,6 +16,7 @@ import {
   TIPO_LINKEDIN_INSTAGRAM,
   TIPO_NEWSLETTER,
   TIPO_SPEAKER_FORM,
+  TIPO_STAND_RENDER,
 } from "@/lib/portal/beneficios";
 import { AccesosForm } from "./accesos-form";
 import { AddonDeck } from "./addon-deck";
@@ -23,6 +24,7 @@ import { BrandingForm } from "./branding-form";
 import { LinkedInInstagramForm } from "./linkedin-instagram-form";
 import { NewsletterForm } from "./newsletter-form";
 import { SpeakerForm } from "./speaker-form";
+import { StandRenderForm } from "./stand-render-form";
 import { CargadoBadge } from "../cargado-badge";
 
 export default async function BeneficioDetallePage({
@@ -137,8 +139,25 @@ export default async function BeneficioDetallePage({
       viewUrl: item.viewUrl,
     }));
 
+  const standRenders = archivosConUrl
+    .filter(
+      (item) =>
+        item.tipo === TIPO_STAND_RENDER && isStoredObject(item.storage_path),
+    )
+    .map((item) => ({
+      id: item.id,
+      nombre: item.nombre_archivo,
+      viewUrl: item.viewUrl,
+    }));
+
   return (
-    <main className="mx-auto max-w-3xl space-y-8 px-6 py-10">
+    <main
+      className={
+        beneficio.tipo === "stand"
+          ? "mx-auto max-w-5xl space-y-8 px-6 py-10"
+          : "mx-auto max-w-3xl space-y-8 px-6 py-10"
+      }
+    >
       <div>
         <Link
           href="/portal/recursos"
@@ -267,6 +286,14 @@ export default async function BeneficioDetallePage({
       ) : null}
 
       {beneficio.tipo === "addon" ? <AddonDeck archivos={decks} /> : null}
+
+      {beneficio.tipo === "stand" ? (
+        <StandRenderForm
+          compromisoId={beneficio.compromisoId}
+          renders={standRenders}
+          revision={beneficio.standRevision ?? null}
+        />
+      ) : null}
 
       {beneficio.tipo === "informativo" ? (
         <section className="rounded-xl border border-border bg-white p-5">

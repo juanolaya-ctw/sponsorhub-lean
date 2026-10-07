@@ -19,6 +19,8 @@ import {
   parseNewsletter,
   requiereAccion,
   TIPO_FORMULARIO_URL,
+  TIPO_STAND_RENDER,
+  type StandRevision,
 } from "@/lib/portal/beneficios";
 import { EntregablesCtSection } from "./entregables-ct";
 import { InsumosAdminList } from "./insumos-admin-list";
@@ -36,6 +38,7 @@ import { DeleteSponsorButton } from "../delete-sponsor-button";
 import { TierSelect } from "../tier-select";
 import { CtMediaToggle } from "../ct-media-toggle";
 import type { ArchivoPorSponsor } from "./upload-por-sponsor";
+import type { StandRenderArchivo } from "./stand-render-upload";
 
 const BUCKET = "sponsorhub-archivos";
 const SIGNED_URL_TTL = 60 * 60; // 1 hora
@@ -119,6 +122,7 @@ export default async function SponsorDetallePage({
     accesosResult,
     archivosBeneficioResult,
     formulariosEventoResult,
+    standRevisionesResult,
   ] = await Promise.all([
     supabase
       .from("archivos")
@@ -167,6 +171,10 @@ export default async function SponsorDetallePage({
       .from("beneficio_formularios")
       .select("beneficio_nombre, url")
       .eq("evento_id", evento.id),
+    supabase
+      .from("stand_revisiones")
+      .select("id, compromiso_id, decision, comentario, created_at")
+      .order("created_at", { ascending: false }),
   ]);
 
   if (archivosResult.error) throw new Error(archivosResult.error.message);
@@ -183,6 +191,12 @@ export default async function SponsorDetallePage({
     formulariosEventoResult.error.code !== "42P01"
   ) {
     throw new Error(formulariosEventoResult.error.message);
+  }
+  if (
+    standRevisionesResult.error &&
+    standRevisionesResult.error.code !== "42P01"
+  ) {
+    throw new Error(standRevisionesResult.error.message);
   }
   const formulariosEventoPorNombre = new Map(
     (formulariosEventoResult.data ?? []).map((row) => [
@@ -207,6 +221,10 @@ export default async function SponsorDetallePage({
   // Más reciente por compromiso; preferir archivo real sobre markers JSON.
   const archivosPorCompromiso = new Map<string, ArchivoPorSponsor>();
   const formulariosPorCompromiso = new Map<string, FormularioPorSponsor>();
+  const standRendersRaw = new Map<
+    string,
+    { id: string; nombre: string; storagePath: string }[]
+  >();
   for (const row of archivosBeneficioResult.data ?? []) {
     const compromisoId = row.compromiso_id as string | null;
     if (!compromisoId) continue;
@@ -221,6 +239,20 @@ export default async function SponsorDetallePage({
           url: row.storage_path as string,
         });
       }
+      continue;
+    }
+
+    if (
+      row.tipo === TIPO_STAND_RENDER &&
+      isStoredObject(row.storage_path as string)
+    ) {
+      const list = standRendersRaw.get(compromisoId) ?? [];
+      list.push({
+        id: row.id as string,
+        nombre: row.nombre_archivo as string,
+        storagePath: row.storage_path as string,
+      });
+      standRendersRaw.set(compromisoId, list);
       continue;
     }
 
@@ -241,11 +273,52 @@ export default async function SponsorDetallePage({
     }
   }
 
+  const standRevisionPorCompromiso = new Map<string, StandRevision>();
+  const compromisoIds = new Set(
+    (compromisosResult.data ?? []).map((row) => row.id as string),
+  );
+  for (const row of standRevisionesResult.data ?? []) {
+    const compromisoId = row.compromiso_id as string;
+    if (!compromisoIds.has(compromisoId)) continue;
+    if (standRevisionPorCompromiso.has(compromisoId)) continue;
+    const decision = row.decision as string;
+    if (decision !== "aprobado" && decision !== "cambios_solicitados") {
+      continue;
+    }
+    standRevisionPorCompromiso.set(compromisoId, {
+      id: row.id as string,
+      decision,
+      comentario: (row.comentario as string | null) ?? null,
+      created_at: row.created_at as string,
+    });
+  }
+
   // Las URLs firmadas se generan con el cliente de service_role porque las
   // policies de Storage solo dan acceso al propio sponsor. Esta página está
   // detrás de requireAdmin (getEventoBySlug), así que el acceso ya está
   // validado. Se recalcula en cada carga — sin tiempo real.
   const admin = createAdminClient();
+
+  const standRendersPorCompromiso = new Map<string, StandRenderArchivo[]>();
+  await Promise.all(
+    Array.from(standRendersRaw.entries()).map(async ([compromisoId, list]) => {
+      const withUrls = await Promise.all(
+        list.map(async (archivo) => {
+          const { data } = await admin.storage
+            .from(BUCKET)
+            .createSignedUrl(archivo.storagePath, SIGNED_URL_TTL);
+          return {
+            id: archivo.id,
+            nombre: archivo.nombre,
+            storagePath: archivo.storagePath,
+            viewUrl: data?.signedUrl ?? null,
+          };
+        }),
+      );
+      standRendersPorCompromiso.set(compromisoId, withUrls);
+    }),
+  );
+
   const archivosConUrl = await Promise.all(
     archivos.map(async (archivo) => {
       const realFile = isRealFile(archivo);
@@ -536,6 +609,8 @@ export default async function SponsorDetallePage({
           eventoSlug={evento.slug}
           sponsorId={sponsor.id}
           archivosPorCompromiso={archivosPorCompromiso}
+          standRendersPorCompromiso={standRendersPorCompromiso}
+          standRevisionPorCompromiso={standRevisionPorCompromiso}
           formulariosPorCompromiso={formulariosPorCompromiso}
           formulariosEventoPorNombre={formulariosEventoPorNombre}
         />
