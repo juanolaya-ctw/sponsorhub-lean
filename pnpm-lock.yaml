@@ -32,6 +32,9 @@ importers:
       cn:
         specifier: ^0.2.6
         version: 0.2.6
+      html-to-image:
+        specifier: ^1.11.13
+        version: 1.11.13
       lucide-react:
         specifier: ^1.44.0
         version: 1.44.0(react@19.3.0)
@@ -53,6 +56,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.3.0(react@19.3.0)
+      react-easy-crop:
+        specifier: ^6.2.4
+        version: 6.2.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       sonner:
         specifier: ^2.0.8
         version: 2.0.8(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2512,6 +2518,9 @@ packages:
     resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==}
     engines: {node: '>=16.9.0'}
 
+  html-to-image@1.11.13:
+    resolution: {integrity: sha512-cuOPoI7WApyhBElTTb9oqsawRvZ0rHhaHwghRLlTuffoD1B2aDemlCruLeZrUIIdvG7gs9xeELEPm6PhuASqrg==}
+
   http-errors@2.0.1:
     resolution: {integrity: sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==}
     engines: {node: '>= 0.8'}
@@ -3078,6 +3087,9 @@ packages:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
     engines: {node: '>=0.10.0'}
 
+  normalize-wheel@1.0.1:
+    resolution: {integrity: sha512-1OnlAPZ3zgrk8B91HyRj+eVv+kS5u+Z0SCsak6Xil/kmgEia50ga7zfkumayonZrImffAxPU/5WcyGhzetHNPA==}
+
   npm-run-path@4.0.1:
     resolution: {integrity: sha512-S48WzZW777zhNIrn7gxOlISNAqi9ZC/uQFnRdbeIHhZhCA6UqpkOT8T1G7BvfdgP4Er8gF4sUbaS0i7QvIfCWw==}
     engines: {node: '>=8'}
@@ -3383,6 +3395,12 @@ packages:
     resolution: {integrity: sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q==}
     peerDependencies:
       react: ^19.3.0
+
+  react-easy-crop@6.2.4:
+    resolution: {integrity: sha512-OWdnFYctzUNlekjob+bQfloG9wyhIBkkmeISnM5XVE4Byqn0jmVxDF7oz85ovUF+EIPQyj0yAHbBEFtnxwGv4g==}
+    peerDependencies:
+      react: '>=16.4.0'
+      react-dom: '>=16.4.0'
 
   react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}
@@ -6594,6 +6612,8 @@ snapshots:
 
   hono@4.13.7: {}
 
+  html-to-image@1.11.13: {}
+
   http-errors@2.0.1:
     dependencies:
       depd: 2.0.0
@@ -7066,6 +7086,8 @@ snapshots:
 
   normalize-path@3.0.0: {}
 
+  normalize-wheel@1.0.1: {}
+
   npm-run-path@4.0.1:
     dependencies:
       path-key: 3.1.1
@@ -7424,6 +7446,12 @@ snapshots:
     dependencies:
       react: 19.3.0
       scheduler: 0.28.0
+
+  react-easy-crop@6.2.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+    dependencies:
+      normalize-wheel: 1.0.1
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   react-is@16.13.1: {}
 

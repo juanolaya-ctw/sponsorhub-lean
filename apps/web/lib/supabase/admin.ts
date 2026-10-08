@@ -6,6 +6,8 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
  * Uso EXCLUSIVO para:
  *   - El cron de sync (app/api/sync/notion/route.ts)
  *   - Operaciones internas de CS que necesiten escribir compromisos/evidencias
+ *   - API pública de artículos / newsletter (`/api/public/*`) — solo
+ *     lee published / inserta suscriptores con allowlist de campos
  *
  * NUNCA importar esto en un componente de cliente ni en una ruta que
  * responda directo a una request del sponsor autenticado — eso anula
