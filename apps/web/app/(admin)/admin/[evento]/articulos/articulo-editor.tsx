@@ -140,8 +140,12 @@ export function ArticuloEditor({
       imgs.map(async (img) => {
         const src = img.getAttribute("src");
         if (!src) return;
-        const dataUrl = await toDataUrl(src);
-        if (dataUrl !== src) img.setAttribute("src", dataUrl);
+        try {
+          const dataUrl = await toDataUrl(src);
+          if (dataUrl.startsWith("data:")) img.setAttribute("src", dataUrl);
+        } catch {
+          // Dejar src original; html-to-image puede seguir con el resto.
+        }
       }),
     );
   }, []);
@@ -163,6 +167,7 @@ export function ArticuloEditor({
         articulo?.image_source_path ?? insumoImagePath ?? null;
       let imagenPath = articulo?.imagen_path ?? null;
       let refreshImagenUrl = false;
+      let captureWarning: string | null = null;
 
       if (sourceBlob) {
         imageSourcePath = await uploadBlob(
@@ -171,13 +176,39 @@ export function ArticuloEditor({
         );
       }
 
-      if (previewImageUrl) {
-        const finalBlob = await captureFullRes();
-        imagenPath = await uploadBlob(
-          finalBlob,
-          articuloStoragePath(sponsor.id, "final"),
-        );
-        refreshImagenUrl = true;
+      if (previewImageUrl || sourceBlob) {
+        try {
+          const finalBlob = await captureFullRes();
+          imagenPath = await uploadBlob(
+            finalBlob,
+            articuloStoragePath(sponsor.id, "final"),
+          );
+          refreshImagenUrl = true;
+        } catch (captureErr) {
+          // Fallback: subir la foto fuente sin plantilla (mejor que bloquear publish).
+          if (sourceBlob) {
+            imagenPath = await uploadBlob(
+              sourceBlob,
+              articuloStoragePath(sponsor.id, "final"),
+            );
+            refreshImagenUrl = true;
+            captureWarning =
+              "Se guardó la imagen sin plantilla (falla al capturar preview).";
+          } else if (imageSourcePath && !imagenPath) {
+            imagenPath = imageSourcePath;
+            refreshImagenUrl = true;
+            captureWarning =
+              "Se reutilizó la imagen del insumo (falla al capturar preview).";
+          } else {
+            const detail =
+              captureErr instanceof Error
+                ? captureErr.message
+                : "Error al capturar la imagen.";
+            throw new Error(
+              `No se pudo generar la imagen final: ${detail}. Prueba “Cambiar imagen” y vuelve a publicar.`,
+            );
+          }
+        }
       }
 
       const result = await saveArticulo({
@@ -210,7 +241,12 @@ export function ArticuloEditor({
 
       setSourceBlob(null);
       setMessage(
-        status === "published" ? "Artículo publicado." : "Borrador guardado.",
+        [
+          status === "published" ? "Artículo publicado." : "Borrador guardado.",
+          captureWarning,
+        ]
+          .filter(Boolean)
+          .join(" "),
       );
       onSaved({
         ...sponsor,
@@ -220,7 +256,13 @@ export function ArticuloEditor({
         insumo_prefill: null,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al guardar.");
+      const raw =
+        err instanceof Error ? err.message : "Error al guardar.";
+      const friendly =
+        /failed to fetch/i.test(raw)
+          ? "Fallo de red al subir o capturar la imagen. Reintenta; si persiste, recarga la página."
+          : raw;
+      setError(friendly);
     } finally {
       setSaving(false);
     }

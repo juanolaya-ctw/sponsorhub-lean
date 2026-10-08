@@ -16,7 +16,24 @@ export async function loadImage(src: string): Promise<HTMLImageElement> {
 
 /** Convert remote/CORS-sensitive URLs to data URLs for html-to-image. */
 export async function toDataUrl(src: string): Promise<string> {
-  if (src.startsWith("data:") || src.startsWith("blob:")) return src;
+  if (src.startsWith("data:")) return src;
+  // blob: — leer con FileReader; no usar fetch+cacheBust (rompe blob URLs).
+  if (src.startsWith("blob:")) {
+    try {
+      const res = await fetch(src);
+      if (!res.ok) return src;
+      const blob = await res.blob();
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () =>
+          reject(new Error("No se pudo leer la imagen local."));
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return src;
+    }
+  }
   try {
     const res = await fetch(src, { mode: "cors", credentials: "omit" });
     if (!res.ok) return src;
@@ -102,10 +119,13 @@ export async function capturePreviewNode(
   node: HTMLElement,
   pixelRatio = 2,
 ): Promise<Blob> {
+  // cacheBust:false — con true html-to-image añade ?t= a blob: y falla
+  // (net::ERR_FILE_NOT_FOUND / Failed to fetch).
   const blob = await toBlob(node, {
     pixelRatio,
-    cacheBust: true,
+    cacheBust: false,
     preferredFontFormat: "woff2",
+    skipFonts: true,
   });
   if (!blob) throw new Error("No se pudo capturar la vista previa.");
   return blob;
