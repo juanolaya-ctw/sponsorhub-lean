@@ -149,3 +149,45 @@ export async function prepareArticuloUpload(
   }
   return { data: { path: data.path, token: data.token }, error: null };
 }
+
+export type DeleteArticuloResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+/** Delete article row and best-effort remove storage objects. */
+export async function deleteArticulo(
+  articuloId: string,
+  eventoSlug: string,
+): Promise<DeleteArticuloResult> {
+  const { supabase } = await requireAdmin();
+
+  const { data: row, error: fetchError } = await supabase
+    .from("articulos")
+    .select("id, image_source_path, imagen_path")
+    .eq("id", articuloId)
+    .maybeSingle();
+
+  if (fetchError || !row) {
+    return { ok: false, error: fetchError?.message ?? "Artículo no encontrado." };
+  }
+
+  const paths = [row.image_source_path, row.imagen_path].filter(
+    (p): p is string => typeof p === "string" && p.length > 0,
+  );
+
+  const { error: deleteError } = await supabase
+    .from("articulos")
+    .delete()
+    .eq("id", articuloId);
+
+  if (deleteError) {
+    return { ok: false, error: deleteError.message };
+  }
+
+  if (paths.length > 0) {
+    await supabase.storage.from(ARCHIVOS_BUCKET).remove(paths);
+  }
+
+  revalidatePath(`/admin/${eventoSlug}/articulos`);
+  return { ok: true };
+}

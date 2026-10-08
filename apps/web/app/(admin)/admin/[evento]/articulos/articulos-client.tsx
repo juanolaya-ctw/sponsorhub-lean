@@ -1,13 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { LayoutGrid, Search, Table2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import {
   cardStatus,
   type ArticuloSponsorCard,
 } from "@/lib/admin/articulos";
 import { ArticuloEditor } from "./articulo-editor";
+import { ArticulosTabla } from "./articulos-tabla";
 
 const TIER_COLORS: Record<string, string> = {
   diamond: "bg-sky-100 text-sky-800",
@@ -33,6 +35,8 @@ function statusClass(status: ReturnType<typeof cardStatus>) {
   return "bg-muted text-muted-foreground";
 }
 
+type ViewTab = "sponsors" | "tabla";
+
 export function ArticulosClient({
   eventoId,
   eventoSlug,
@@ -44,6 +48,7 @@ export function ArticulosClient({
 }) {
   const [sponsors, setSponsors] = useState(initialSponsors);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<ViewTab>("sponsors");
   const [query, setQuery] = useState("");
   const [tierFilter, setTierFilter] = useState("all");
   const [articleFilter, setArticleFilter] = useState<
@@ -92,6 +97,10 @@ export function ArticulosClient({
     );
   }
 
+  const publishedCount = sponsors.filter(
+    (s) => s.articulo?.status === "published",
+  ).length;
+
   return (
     <div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -102,136 +111,198 @@ export function ArticulosClient({
           </p>
         </div>
         <p className="text-sm text-muted-foreground">
-          {filtered.length} de {sponsors.length} sponsors
+          {publishedCount} publicado{publishedCount === 1 ? "" : "s"}
         </p>
       </div>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="relative sm:col-span-2">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar sponsor…"
-            className="pl-9"
-          />
-        </div>
-        <select
-          value={tierFilter}
-          onChange={(e) => setTierFilter(e.target.value)}
-          className="flex h-9 rounded-lg border border-border bg-background px-3 text-sm"
+      <div className="mt-6 inline-flex rounded-lg border border-border bg-white p-1">
+        <button
+          type="button"
+          onClick={() => setView("sponsors")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
+            view === "sponsors"
+              ? "bg-muted font-medium text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
         >
-          <option value="all">Todos los tiers</option>
-          {tiers.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-        <select
-          value={articleFilter}
-          onChange={(e) =>
-            setArticleFilter(
-              e.target.value as "all" | "sin" | "draft" | "published",
-            )
-          }
-          className="flex h-9 rounded-lg border border-border bg-background px-3 text-sm"
+          <LayoutGrid className="size-4" />
+          Sponsors
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("tabla")}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
+            view === "tabla"
+              ? "bg-muted font-medium text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
         >
-          <option value="all">Artículo: todos</option>
-          <option value="sin">Sin artículo</option>
-          <option value="draft">Borrador</option>
-          <option value="published">Publicado</option>
-        </select>
-        <select
-          value={logoFilter}
-          onChange={(e) => setLogoFilter(e.target.value as "all" | "yes" | "no")}
-          className="flex h-9 rounded-lg border border-border bg-background px-3 text-sm sm:col-span-2 lg:col-span-1"
-        >
-          <option value="all">Logo: todos</option>
-          <option value="yes">Con logo</option>
-          <option value="no">Sin logo</option>
-        </select>
+          <Table2 className="size-4" />
+          Publicados
+        </button>
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="mt-8 rounded-xl border border-dashed border-border bg-white px-6 py-14 text-center">
-          <p className="font-medium">No hay sponsors con estos filtros</p>
+      {view === "tabla" ? (
+        <div className="mt-6">
+          <ArticulosTabla
+            eventoSlug={eventoSlug}
+            sponsors={sponsors}
+            onEdit={(sponsorId) => setSelectedId(sponsorId)}
+            onDeleted={(sponsorId) => {
+              setSponsors((prev) =>
+                prev.map((s) =>
+                  s.id === sponsorId
+                    ? {
+                        ...s,
+                        articulo: null,
+                        image_source_url: null,
+                        imagen_preview_url: null,
+                      }
+                    : s,
+                ),
+              );
+            }}
+          />
         </div>
       ) : (
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((s) => {
-            const st = cardStatus(s.articulo);
-            const hasInsumo = Boolean(s.insumo_prefill);
-            const tierKey = (s.paquete ?? "").toLowerCase();
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setSelectedId(s.id)}
-                className="rounded-xl border border-border bg-white p-4 text-left transition-colors hover:border-foreground/20 hover:bg-muted/40"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{s.nombre}</p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {s.paquete ? (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                            TIER_COLORS[tierKey] ?? "bg-muted text-foreground"
-                          }`}
-                        >
-                          {s.paquete}
-                        </span>
-                      ) : null}
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          st === "sin" && hasInsumo
-                            ? "bg-sky-100 text-sky-800"
-                            : statusClass(st)
-                        }`}
-                      >
-                        {statusLabel(st, hasInsumo)}
-                      </span>
+        <>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="relative sm:col-span-2">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar sponsor…"
+                className="pl-9"
+              />
+            </div>
+            <select
+              value={tierFilter}
+              onChange={(e) => setTierFilter(e.target.value)}
+              className="flex h-9 rounded-lg border border-border bg-background px-3 text-sm"
+            >
+              <option value="all">Todos los tiers</option>
+              {tiers.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <select
+              value={articleFilter}
+              onChange={(e) =>
+                setArticleFilter(
+                  e.target.value as "all" | "sin" | "draft" | "published",
+                )
+              }
+              className="flex h-9 rounded-lg border border-border bg-background px-3 text-sm"
+            >
+              <option value="all">Artículo: todos</option>
+              <option value="sin">Sin artículo</option>
+              <option value="draft">Borrador</option>
+              <option value="published">Publicado</option>
+            </select>
+            <select
+              value={logoFilter}
+              onChange={(e) =>
+                setLogoFilter(e.target.value as "all" | "yes" | "no")
+              }
+              className="flex h-9 rounded-lg border border-border bg-background px-3 text-sm sm:col-span-2 lg:col-span-1"
+            >
+              <option value="all">Logo: todos</option>
+              <option value="yes">Con logo</option>
+              <option value="no">Sin logo</option>
+            </select>
+          </div>
+
+          <p className="mt-3 text-sm text-muted-foreground">
+            {filtered.length} de {sponsors.length} sponsors
+          </p>
+
+          {filtered.length === 0 ? (
+            <div className="mt-8 rounded-xl border border-dashed border-border bg-white px-6 py-14 text-center">
+              <p className="font-medium">No hay sponsors con estos filtros</p>
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {filtered.map((s) => {
+                const st = cardStatus(s.articulo);
+                const hasInsumo = Boolean(s.insumo_prefill);
+                const tierKey = (s.paquete ?? "").toLowerCase();
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setSelectedId(s.id)}
+                    className="rounded-xl border border-border bg-white p-4 text-left transition-colors hover:border-foreground/20 hover:bg-muted/40"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{s.nombre}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {s.paquete ? (
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                TIER_COLORS[tierKey] ??
+                                "bg-muted text-foreground"
+                              }`}
+                            >
+                              {s.paquete}
+                            </span>
+                          ) : null}
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                              st === "sin" && hasInsumo
+                                ? "bg-sky-100 text-sky-800"
+                                : statusClass(st)
+                            }`}
+                          >
+                            {statusLabel(st, hasInsumo)}
+                          </span>
+                        </div>
+                      </div>
+                      {s.logo_preview_url ||
+                      s.logo_color_url ||
+                      s.logo_blanco_url ||
+                      s.logo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={
+                            s.logo_preview_url ??
+                            s.logo_color_url ??
+                            s.logo_blanco_url ??
+                            s.logo_url ??
+                            ""
+                          }
+                          alt=""
+                          className="size-10 shrink-0 rounded bg-[#131212] object-contain p-1"
+                        />
+                      ) : (
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
+                          —
+                        </div>
+                      )}
                     </div>
-                  </div>
-                  {s.logo_preview_url ||
-                  s.logo_color_url ||
-                  s.logo_blanco_url ||
-                  s.logo_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={
-                        s.logo_preview_url ??
-                        s.logo_color_url ??
-                        s.logo_blanco_url ??
-                        s.logo_url ??
-                        ""
-                      }
-                      alt=""
-                      className="size-10 shrink-0 rounded bg-[#131212] object-contain p-1"
-                    />
-                  ) : (
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
-                      —
-                    </div>
-                  )}
-                </div>
-                {s.articulo?.dato_impactante ||
-                s.insumo_prefill?.dato_impactante ? (
-                  <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
                     {s.articulo?.dato_impactante ||
-                      s.insumo_prefill?.dato_impactante}
-                  </p>
-                ) : null}
-                {!s.articulo && s.insumo_prefill ? (
-                  <p className="mt-2 text-xs font-medium text-sky-700">
-                    Insumo RRSS listo para editar
-                  </p>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
+                    s.insumo_prefill?.dato_impactante ? (
+                      <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
+                        {s.articulo?.dato_impactante ||
+                          s.insumo_prefill?.dato_impactante}
+                      </p>
+                    ) : null}
+                    {!s.articulo && s.insumo_prefill ? (
+                      <p className="mt-2 text-xs font-medium text-sky-700">
+                        Insumo RRSS listo para editar
+                      </p>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
