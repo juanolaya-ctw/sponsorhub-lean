@@ -89,13 +89,14 @@ function oneNested<T>(value: T | T[] | null | undefined): T | null {
 function parseCantidadFromNombre(nombre: string): number | null {
   const trimmed = nombre.trim();
   if (!trimmed) return null;
-  const leading = trimmed.match(/^(\d+)\b/);
-  if (leading) return Number.parseInt(leading[1], 10);
-  const xForm = trimmed.match(/\bx\s*(\d+)\b/i);
-  if (xForm) return Number.parseInt(xForm[1], 10);
-  const paren = trimmed.match(/\((\d+)\)/);
-  if (paren) return Number.parseInt(paren[1], 10);
-  return null;
+  const match =
+    trimmed.match(/^(\d+)\b/) ??
+    trimmed.match(/\bx\s*(\d+)\b/i) ??
+    trimmed.match(/\((\d+)\)/);
+  const raw = match?.[1];
+  if (!raw) return null;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function esBeneficioAccesos(categoria: string | null, nombre: string): boolean {
