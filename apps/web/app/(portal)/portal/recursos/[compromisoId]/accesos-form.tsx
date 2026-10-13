@@ -23,10 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/client";
-import {
-  tipoAccesoFromCategoria,
-  type AccesoPersona,
-} from "@/lib/portal/beneficios";
+import type { AccesoPersona } from "@/lib/portal/beneficios";
 
 const CAMPOS = [
   { name: "nombre", label: "Nombre completo", type: "text", required: true },
@@ -44,13 +41,13 @@ const CAMPOS = [
 export function AccesosForm({
   sponsorId,
   compromisoId,
-  categoria,
+  accesoTipo,
   cantidad,
   personas,
 }: {
   sponsorId: string;
   compromisoId: string;
-  categoria: string;
+  accesoTipo: "vip" | "general";
   cantidad: number | null;
   personas: AccesoPersona[];
 }) {
@@ -76,10 +73,34 @@ export function AccesosForm({
     setPending(true);
     setError(null);
     const supabase = createClient();
+
+    if (limite !== null) {
+      const { count, error: countError } = await supabase
+        .from("accesos_personas")
+        .select("id", { count: "exact", head: true })
+        .eq("compromiso_id", compromisoId)
+        .eq("sponsor_id", sponsorId);
+
+      if (countError) {
+        setError(countError.message);
+        setPending(false);
+        return;
+      }
+      if ((count ?? 0) >= limite) {
+        setError(
+          `Ya alcanzaste el límite de ${limite} personas para este beneficio.`,
+        );
+        setPending(false);
+        setOpen(false);
+        router.refresh();
+        return;
+      }
+    }
+
     const { error: insertError } = await supabase.from("accesos_personas").insert({
       sponsor_id: sponsorId,
       compromiso_id: compromisoId,
-      tipo: tipoAccesoFromCategoria(categoria),
+      tipo: accesoTipo,
       nombre: get("nombre"),
       email: get("email"),
       documento_identidad: get("documento_identidad"),
@@ -128,6 +149,9 @@ export function AccesosForm({
         <div>
           <h2 className="font-semibold">Personas registradas</h2>
           <p className="mt-1 text-sm text-muted-foreground">
+            Tipo de acceso:{" "}
+            <span className="font-medium capitalize">{accesoTipo}</span>
+            {" · "}
             {limite
               ? `${personas.length} de ${limite} personas registradas`
               : `${personas.length} ${personas.length === 1 ? "persona registrada" : "personas registradas"}`}
@@ -141,9 +165,16 @@ export function AccesosForm({
             setOpen(true);
           }}
         >
-          Agregar persona
+          {lleno ? "Límite alcanzado" : "Agregar persona"}
         </Button>
       </div>
+
+      {lleno ? (
+        <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
+          Cumpliste el cupo de este beneficio. Para agregar a alguien más,
+          elimina un registro existente o pide a ColombiaTech ampliar el cupo.
+        </p>
+      ) : null}
 
       {personas.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -192,7 +223,8 @@ export function AccesosForm({
             <DialogTitle>Agregar persona</DialogTitle>
             <DialogDescription>
               Completa los 10 datos que ColombiaTech necesita para acreditar a
-              esta persona.
+              esta persona. Se registrará como acceso {accesoTipo}.
+              {limite ? ` Cupo: ${personas.length}/${limite}.` : ""}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={(event) => void addPersona(event)} className="grid gap-3 sm:grid-cols-2">
@@ -212,7 +244,7 @@ export function AccesosForm({
               </div>
             ))}
             <DialogFooter className="sm:col-span-2">
-              <Button type="submit" disabled={pending}>
+              <Button type="submit" disabled={pending || lleno}>
                 {pending ? "Guardando…" : "Guardar persona"}
               </Button>
             </DialogFooter>

@@ -173,9 +173,8 @@ export async function createCompromisoSponsor(
 }
 
 /**
- * Elimina un compromiso de un sponsor.
- * Contrato solo desde Notion. Filas LAB se pueden forzar desde admin
- * (útil con duplicados); si siguen en Notion, el próximo sync las recrea.
+ * Elimina un compromiso de un sponsor (incl. Contrato / LAB).
+ * Si la fila sigue en Notion, el próximo sync puede recrearla.
  */
 export async function deleteCompromisoSponsor(
   compromisoId: string,
@@ -191,11 +190,6 @@ export async function deleteCompromisoSponsor(
   if (lookupError || !data) {
     return { error: lookupError?.message ?? "Compromiso no encontrado." };
   }
-  if (data.tipo_beneficio === "Contrato") {
-    return {
-      error: "Los beneficios de Contrato solo se eliminan desde Notion.",
-    };
-  }
 
   const { error } = await supabase
     .from("compromisos")
@@ -204,6 +198,29 @@ export async function deleteCompromisoSponsor(
   if (error) return { error: error.message };
 
   revalidateCompromisos(eventoSlug, data.sponsor_id as string);
+  return { error: null };
+}
+
+/** Override vip|general en un beneficio de accesos. */
+export async function updateCompromisoAccesoTipo(
+  compromisoId: string,
+  accesoTipo: "vip" | "general",
+  eventoSlug: string,
+) {
+  const { supabase } = await requireAdmin();
+  if (accesoTipo !== "vip" && accesoTipo !== "general") {
+    return { error: "Tipo de acceso inválido." };
+  }
+
+  const { data, error } = await supabase
+    .from("compromisos")
+    .update({ acceso_tipo: accesoTipo })
+    .eq("id", compromisoId)
+    .select("sponsor_id")
+    .maybeSingle();
+
+  if (error) return { error: error.message };
+  revalidateCompromisos(eventoSlug, data?.sponsor_id as string | undefined);
   return { error: null };
 }
 

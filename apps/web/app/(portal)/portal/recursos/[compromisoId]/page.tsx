@@ -218,7 +218,7 @@ export default async function BeneficioDetallePage({
         <AccesosForm
           sponsorId={sponsor.sponsorId}
           compromisoId={beneficio.compromisoId}
-          categoria={beneficio.categoria}
+          accesoTipo={beneficio.accesoTipo}
           cantidad={beneficio.cantidad}
           personas={beneficio.personas}
         />

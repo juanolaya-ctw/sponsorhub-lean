@@ -9,7 +9,10 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { getEventoBySlug } from "@/lib/admin/eventos";
-import { tipoFormulario } from "@/lib/portal/beneficios";
+import {
+  parseCantidadFromNombre,
+  tipoFormulario,
+} from "@/lib/portal/beneficios";
 import { INSUMOS_REQUERIDOS, insumoKeyFromTipo } from "@/lib/portal/insumos";
 import {
   getPortalPageviewsLast7Days,
@@ -83,20 +86,6 @@ function esSponsorPlaceholder(sponsor: SponsorRow): boolean {
 function oneNested<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? (value[0] ?? null) : value;
-}
-
-/** Extrae cupo desde nombres tipo "12 Accesos Generales" o "Accesos VIP (5)". */
-function parseCantidadFromNombre(nombre: string): number | null {
-  const trimmed = nombre.trim();
-  if (!trimmed) return null;
-  const match =
-    trimmed.match(/^(\d+)\b/) ??
-    trimmed.match(/\bx\s*(\d+)\b/i) ??
-    trimmed.match(/\((\d+)\)/);
-  const raw = match?.[1];
-  if (!raw) return null;
-  const value = Number.parseInt(raw, 10);
-  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function esBeneficioAccesos(categoria: string | null, nombre: string): boolean {

@@ -93,6 +93,8 @@ export type BeneficioPortal = {
   beneficio: string;
   categoria: string;
   cantidad: number | null;
+  /** Tipo de acceso efectivo (override admin o inferido del nombre). */
+  accesoTipo: "vip" | "general";
   detalleSolicitud: string | null;
   notas: string | null;
   estadoNombre: string | null;
@@ -131,6 +133,8 @@ type CompromisoRow = {
   tipo: string;
   tipo_beneficio: string | null;
   categoria_beneficio: string | null;
+  /** Presente tras migración 0019; ausente se trata como null. */
+  acceso_tipo?: string | null;
   catalogo_beneficios: CatalogoJoin | CatalogoJoin[] | null;
   estados_compromiso: EstadoJoin | EstadoJoin[] | null;
 };
@@ -212,6 +216,51 @@ export function tipoAccesoFromCategoria(
   categoria: string,
 ): "vip" | "general" {
   return categoria.toLowerCase().includes("vip") ? "vip" : "general";
+}
+
+/** Infere vip|general desde el nombre del beneficio (p. ej. "1 acceso VIP"). */
+export function tipoAccesoFromNombre(nombre: string): "vip" | "general" {
+  return nombre.toLowerCase().includes("vip") ? "vip" : "general";
+}
+
+/**
+ * Extrae cupo desde nombres tipo "3 accesos generales" o "Accesos VIP (5)".
+ * No usa el primer número suelto del texto para evitar falsos positivos.
+ */
+export function parseCantidadFromNombre(nombre: string): number | null {
+  const trimmed = nombre.trim();
+  if (!trimmed) return null;
+  const match =
+    trimmed.match(/^(\d+)\b/) ??
+    trimmed.match(/\bx\s*(\d+)\b/i) ??
+    trimmed.match(/\((\d+)\)/);
+  const raw = match?.[1];
+  if (!raw) return null;
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+export function resolverTipoAcceso(options: {
+  accesoTipo?: string | null;
+  beneficioNombre: string;
+  categoria?: string | null;
+}): "vip" | "general" {
+  if (options.accesoTipo === "vip" || options.accesoTipo === "general") {
+    return options.accesoTipo;
+  }
+  if (tipoAccesoFromNombre(options.beneficioNombre) === "vip") return "vip";
+  if (options.categoria && tipoAccesoFromCategoria(options.categoria) === "vip") {
+    return "vip";
+  }
+  return "general";
+}
+
+export function resolverCantidadAccesos(
+  catalogoCantidad: number | null | undefined,
+  beneficioNombre: string,
+): number | null {
+  if (catalogoCantidad != null && catalogoCantidad > 0) return catalogoCantidad;
+  return parseCantidadFromNombre(beneficioNombre);
 }
 
 export function safeFilename(name: string) {
@@ -476,7 +525,12 @@ function mapCompromiso(
   const categoria =
     catalogo?.categoria ?? row.categoria_beneficio ?? "Otros";
   const tipo = resolverTipoFormulario(catalogo?.categoria, beneficio);
-  const cantidad = catalogo?.cantidad ?? null;
+  const cantidad = resolverCantidadAccesos(catalogo?.cantidad, beneficio);
+  const accesoTipo = resolverTipoAcceso({
+    accesoTipo: row.acceso_tipo,
+    beneficioNombre: beneficio,
+    categoria: catalogo?.categoria ?? row.categoria_beneficio,
+  });
   const archivosDel = archivos.filter((item) => item.compromiso_id === row.id);
   const personasDel = personas.filter((item) => item.compromiso_id === row.id);
   const formulario =
@@ -492,6 +546,7 @@ function mapCompromiso(
     beneficio,
     categoria,
     cantidad,
+    accesoTipo,
     detalleSolicitud: catalogo?.detalle_solicitud ?? null,
     notas: catalogo?.notas ?? null,
     estadoNombre: estado?.nombre ?? null,
@@ -582,7 +637,7 @@ export async function loadPortalBeneficios(
       supabase
         .from("compromisos")
         .select(
-          "id, tipo, tipo_beneficio, categoria_beneficio, catalogo_beneficios(beneficio, categoria, cantidad, detalle_solicitud, notas, orden), estados_compromiso(nombre, color, es_estado_final)",
+          "id, tipo, tipo_beneficio, categoria_beneficio, acceso_tipo, catalogo_beneficios(beneficio, categoria, cantidad, detalle_solicitud, notas, orden), estados_compromiso(nombre, color, es_estado_final)",
         )
         .eq("sponsor_id", sponsorId),
       supabase

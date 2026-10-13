@@ -1,14 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { getEventoBySlug } from "@/lib/admin/eventos";
 import { GOVTECH_EVENT_SLUG } from "@/lib/notion/client";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -28,6 +20,7 @@ import {
   BeneficiosSection,
   type BeneficioCompromisoRow,
 } from "./beneficios-section";
+import { AccesosAdminTable } from "./accesos-admin-table";
 import type { FormularioPorSponsor } from "./formulario-link-por-sponsor";
 import {
   CommitmentsTable,
@@ -139,7 +132,7 @@ export default async function SponsorDetallePage({
     supabase
       .from("compromisos")
       .select(
-        "id, tipo, tipo_beneficio, categoria_beneficio, notion_page_id, fecha_limite, estado_id, sponsors(nombre), catalogo_beneficios(beneficio)",
+        "id, tipo, tipo_beneficio, categoria_beneficio, acceso_tipo, notion_page_id, fecha_limite, estado_id, sponsors(nombre), catalogo_beneficios(beneficio)",
       )
       .eq("sponsor_id", sponsor.id)
       .order("fecha_limite"),
@@ -535,70 +528,14 @@ export default async function SponsorDetallePage({
       <section>
         <h2 className="text-lg font-semibold">Accesos</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Personas registradas por el sponsor para accesos generales y VIP.
+          Personas registradas por el sponsor. Puedes cambiar el tipo
+          (general/VIP) o eliminar registros.
         </p>
-        {accesos.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-12 text-center">
-            <p className="font-medium">Este sponsor aún no ha registrado personas</p>
-          </div>
-        ) : (
-          <div className="mt-4 rounded-xl border border-border bg-white">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Nombre completo</TableHead>
-                  <TableHead>Documento</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>LinkedIn</TableHead>
-                  <TableHead>Rol ecosistema</TableHead>
-                  <TableHead>Celular</TableHead>
-                  <TableHead>País</TableHead>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead>Industria</TableHead>
-                  <TableHead>Nivel de cargo</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {accesos.map((persona) => {
-                  const nombre = [persona.nombre, persona.apellido]
-                    .filter(Boolean)
-                    .join(" ");
-                  return (
-                    <TableRow key={persona.id}>
-                      <TableCell className="capitalize">{persona.tipo}</TableCell>
-                      <TableCell className="font-medium">{nombre || "—"}</TableCell>
-                      <TableCell>{persona.documento_identidad ?? "—"}</TableCell>
-                      <TableCell>{persona.email ?? "—"}</TableCell>
-                      <TableCell>
-                        {persona.linkedin_url ? (
-                          <a
-                            href={persona.linkedin_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-secondary hover:underline"
-                          >
-                            Ver perfil
-                          </a>
-                        ) : (
-                          "—"
-                        )}
-                      </TableCell>
-                      <TableCell>{persona.rol_ecosistema ?? "—"}</TableCell>
-                      <TableCell>{persona.numero_celular ?? "—"}</TableCell>
-                      <TableCell>{persona.pais_residencia ?? "—"}</TableCell>
-                      <TableCell>{persona.empresa ?? "—"}</TableCell>
-                      <TableCell>{persona.industria ?? "—"}</TableCell>
-                      <TableCell>
-                        {persona.nivel_cargo ?? persona.cargo ?? "—"}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+        <AccesosAdminTable
+          accesos={accesos}
+          sponsorId={sponsor.id}
+          eventoSlug={evento.slug}
+        />
       </section>
 
       {isGovtech ? (

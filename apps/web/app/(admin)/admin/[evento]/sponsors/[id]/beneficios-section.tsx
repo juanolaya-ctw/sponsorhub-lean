@@ -54,12 +54,14 @@ import {
   StandRenderUpload,
   type StandRenderArchivo,
 } from "./stand-render-upload";
+import { AccesoTipoSelect } from "./acceso-tipo-select";
 
 export type BeneficioCompromisoRow = {
   id: string;
   tipo: string;
   tipo_beneficio: string | null;
   categoria_beneficio: string | null;
+  acceso_tipo: string | null;
   estado_id: string | null;
   notion_page_id: string | null;
 };
@@ -81,8 +83,8 @@ function SubmitButton() {
   );
 }
 
-function canDeleteFromPanel(row: BeneficioCompromisoRow): boolean {
-  return row.tipo_beneficio !== "Contrato";
+function canDeleteFromPanel(_row: BeneficioCompromisoRow): boolean {
+  return true;
 }
 
 function DeleteCompromisoButton({
@@ -313,13 +315,18 @@ function BeneficioGroup({
                 <TableCell className="font-medium">
                   <div>
                     {row.tipo}
-                    {row.tipo_beneficio &&
-                    TIPOS_PERSONALIZADOS.has(row.tipo_beneficio) ? (
+                    {row.tipo_beneficio ? (
                       <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
                         {row.tipo_beneficio}
                         {row.notion_page_id ? " · Notion" : " · Panel"}
                       </span>
                     ) : null}
+                    <AccesoTipoSelect
+                      compromisoId={row.id}
+                      beneficioNombre={row.tipo}
+                      accesoTipo={row.acceso_tipo}
+                      eventoSlug={eventoSlug}
+                    />
                   </div>
                 </TableCell>
                 <TableCell>{row.categoria_beneficio ?? "—"}</TableCell>
@@ -462,7 +469,7 @@ export function BeneficiosSection({
         <div className="mt-4 space-y-5">
           <BeneficioGroup
             title="Contrato"
-            description="Beneficios base del tier. Solo se eliminan desde Notion."
+            description="Beneficios base del tier. Puedes eliminar duplicados aquí; si siguen en Notion, el sync puede recrearlos."
             rows={contrato}
             estados={estados}
             eventoSlug={eventoSlug}
@@ -475,7 +482,7 @@ export function BeneficiosSection({
           />
           <BeneficioGroup
             title="Adicional / Upgrade / Tailor made"
-            description="Personalizados. Los del panel se pueden eliminar aquí; los de Notion, desde LAB Beneficios."
+            description="Personalizados del panel o Notion. Eliminar quita la copia de este sponsor."
             rows={personalizados}
             estados={estados}
             eventoSlug={eventoSlug}

@@ -289,3 +289,46 @@ export async function deleteArchivo(
   revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
   return { error: null };
 }
+
+export async function updateAccesoPersonaTipo(
+  accesoId: string,
+  sponsorId: string,
+  eventoSlug: string,
+  tipo: "vip" | "general",
+) {
+  const { supabase } = await requireAdmin();
+  if (tipo !== "vip" && tipo !== "general") {
+    return { error: "Tipo de acceso inválido." };
+  }
+
+  const { error } = await supabase
+    .from("accesos_personas")
+    .update({ tipo })
+    .eq("id", accesoId)
+    .eq("sponsor_id", sponsorId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
+  revalidatePath(`/admin/${eventoSlug}/metricas`);
+  return { error: null };
+}
+
+export async function deleteAccesoPersona(
+  accesoId: string,
+  sponsorId: string,
+  eventoSlug: string,
+) {
+  const { supabase } = await requireAdmin();
+  const { error } = await supabase
+    .from("accesos_personas")
+    .delete()
+    .eq("id", accesoId)
+    .eq("sponsor_id", sponsorId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/admin/${eventoSlug}/sponsors/${sponsorId}`);
+  revalidatePath(`/admin/${eventoSlug}/metricas`);
+  return { error: null };
+}
