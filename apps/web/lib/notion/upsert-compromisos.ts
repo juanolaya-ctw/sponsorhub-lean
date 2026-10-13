@@ -15,8 +15,12 @@ type ExistingCompromiso = {
   notion_page_id: string;
 };
 
+function normalizePageId(notionPageId: string): string {
+  return tryNormalizeNotionId(notionPageId) ?? notionPageId.toLowerCase();
+}
+
 function pairKey(sponsorId: string, notionPageId: string): string {
-  return `${sponsorId}::${notionPageId}`;
+  return `${sponsorId}::${normalizePageId(notionPageId)}`;
 }
 
 async function resolvePendienteEstadoId(
@@ -41,23 +45,29 @@ async function resolvePendienteEstadoId(
   return (preferred?.id as string | undefined) ?? null;
 }
 
+export type UpsertCompromisosPrune = boolean | "scoped";
+
 /**
  * Upsert de compromisos desde LAB Beneficios.
  * - Explota Sponsor (CRM) → N filas (una por sponsor).
- * - ON CONFLICT (sponsor_id, notion_page_id): actualiza tipo / tipo_beneficio /
- *   categoria_beneficio. NUNCA toca estado_id.
+ * - Match por (sponsor_id, notion_page_id normalizado): actualiza tipo /
+ *   tipo_beneficio / categoria_beneficio. NUNCA toca estado_id.
  * - Insert nuevos con estado Pendiente.
- * - Prune (default true): borra compromisos govtech con notion_page_id que ya
- *   no están en `rows`. Nunca borra notion_page_id IS NULL (panel).
- *   En webhook de una sola fila pasar `{ prune: false }`.
+ * - Prune:
+ *   - true (default, cron): borra synced cuyo pair ya no está en `rows`.
+ *   - "scoped" (webhook): solo poda pairs de los notion_page_id del batch
+ *     (sponsors quitados de esa fila LAB).
+ *   - false: no poda.
+ *   Nunca borra notion_page_id IS NULL (panel).
  */
 export async function upsertCompromisosFromLabBeneficios(
   supabase: AdminClient,
   eventoId: string,
   rows: LabBeneficioRow[],
-  options?: { prune?: boolean },
+  options?: { prune?: UpsertCompromisosPrune },
 ): Promise<UpsertCompromisosResult> {
-  const prune = options?.prune !== false;
+  const pruneMode: UpsertCompromisosPrune =
+    options?.prune === undefined ? true : options.prune;
   const errores: string[] = [];
   let compromisosSincronizados = 0;
 
@@ -97,6 +107,7 @@ export async function upsertCompromisosFromLabBeneficios(
 
   const sponsorIds = [...new Set(sponsorByNotionId.values())];
   const existingByPair = new Map<string, ExistingCompromiso>();
+  const duplicateIds: string[] = [];
 
   if (sponsorIds.length > 0) {
     const { data: existing, error: existingError } = await supabase
@@ -114,20 +125,29 @@ export async function upsertCompromisosFromLabBeneficios(
 
     for (const row of existing ?? []) {
       if (!row.notion_page_id) continue;
-      existingByPair.set(
-        pairKey(row.sponsor_id as string, row.notion_page_id as string),
-        {
-          id: row.id as string,
-          sponsor_id: row.sponsor_id as string,
-          notion_page_id: row.notion_page_id as string,
-        },
-      );
+      const mapped: ExistingCompromiso = {
+        id: row.id as string,
+        sponsor_id: row.sponsor_id as string,
+        notion_page_id: row.notion_page_id as string,
+      };
+      const key = pairKey(mapped.sponsor_id, mapped.notion_page_id);
+      const prev = existingByPair.get(key);
+      if (prev) {
+        // Misma identidad con distinto formato de UUID → quedarse con uno.
+        duplicateIds.push(mapped.id);
+        continue;
+      }
+      existingByPair.set(key, mapped);
     }
   }
 
   const syncedPairs = new Set<string>();
+  const batchPageIds = new Set(
+    rows.map((lab) => normalizePageId(lab.notion_page_id)),
+  );
 
   for (const lab of rows) {
+    const labPageId = normalizePageId(lab.notion_page_id);
     for (const rawCrmId of lab.sponsor_crm_page_ids) {
       const crmId = tryNormalizeNotionId(rawCrmId) ?? rawCrmId.toLowerCase();
       const sponsorId =
@@ -141,7 +161,7 @@ export async function upsertCompromisosFromLabBeneficios(
         continue;
       }
 
-      const key = pairKey(sponsorId, lab.notion_page_id);
+      const key = pairKey(sponsorId, labPageId);
       syncedPairs.add(key);
       const existing = existingByPair.get(key);
 
@@ -152,6 +172,7 @@ export async function upsertCompromisosFromLabBeneficios(
             tipo: lab.nombre,
             tipo_beneficio: lab.tipo_beneficio,
             categoria_beneficio: lab.categoria_beneficio,
+            notion_page_id: lab.notion_page_id,
           })
           .eq("id", existing.id);
 
@@ -183,32 +204,36 @@ export async function upsertCompromisosFromLabBeneficios(
     }
   }
 
-  // Prune: LAB rows removed in Notion → delete synced compromisos.
+  // Prune: LAB rows removed / sponsors quitados → delete synced compromisos.
   // Nunca tocar notion_page_id IS NULL (panel).
-  // Webhook de una fila debe pasar prune: false.
-  if (prune) {
-    const toDeleteIds: string[] = [];
+  const toDeleteIds: string[] = [...duplicateIds];
+  if (pruneMode === true || pruneMode === "scoped") {
     for (const [key, row] of existingByPair) {
-      if (!syncedPairs.has(key)) {
-        toDeleteIds.push(row.id);
+      if (syncedPairs.has(key)) continue;
+      if (
+        pruneMode === "scoped" &&
+        !batchPageIds.has(normalizePageId(row.notion_page_id))
+      ) {
+        continue;
       }
+      toDeleteIds.push(row.id);
     }
+  }
 
-    if (toDeleteIds.length > 0) {
-      const { error: deleteError } = await supabase
-        .from("compromisos")
-        .delete()
-        .in("id", toDeleteIds);
+  if (toDeleteIds.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("compromisos")
+      .delete()
+      .in("id", toDeleteIds);
 
-      if (deleteError) {
-        const detail = `Prune compromisos huérfanos: ${deleteError.message}`;
-        console.error(`[lab-beneficios] ${detail}`);
-        errores.push(detail);
-      } else {
-        console.info(
-          `[lab-beneficios] Prune: ${toDeleteIds.length} compromiso(s) eliminados.`,
-        );
-      }
+    if (deleteError) {
+      const detail = `Prune compromisos huérfanos: ${deleteError.message}`;
+      console.error(`[lab-beneficios] ${detail}`);
+      errores.push(detail);
+    } else {
+      console.info(
+        `[lab-beneficios] Prune: ${toDeleteIds.length} compromiso(s) eliminados.`,
+      );
     }
   }
 

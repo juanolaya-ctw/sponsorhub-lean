@@ -9,12 +9,17 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { getEventoBySlug } from "@/lib/admin/eventos";
+import { tipoFormulario } from "@/lib/portal/beneficios";
 import { INSUMOS_REQUERIDOS, insumoKeyFromTipo } from "@/lib/portal/insumos";
 import {
   getPortalPageviewsLast7Days,
   postHogAppHost,
   type PageviewPoint,
 } from "@/lib/posthog/trends";
+import {
+  MetricasClient,
+  type AccesoMetricasRow,
+} from "./metricas-client";
 
 const TOTAL_INSUMOS_REQUERIDOS = INSUMOS_REQUERIDOS.length;
 
@@ -24,10 +29,26 @@ type SponsorRow = {
   paquete: string | null;
 };
 
+type CatalogoNested = {
+  cantidad: number | null;
+  categoria: string | null;
+  beneficio: string | null;
+} | null;
+
 type CompromisoRow = {
   id: string;
   sponsor_id: string;
+  tipo: string;
+  categoria_beneficio: string | null;
+  catalogo_beneficios: CatalogoNested | CatalogoNested[];
   estados_compromiso: { es_estado_final: boolean } | null;
+};
+
+type CatalogoAccesoRow = {
+  tier: string;
+  categoria: string;
+  beneficio: string;
+  cantidad: number | null;
 };
 
 type ArchivoRow = {
@@ -36,12 +57,62 @@ type ArchivoRow = {
   created_at: string;
 };
 
-type AccesoRow = {
+type AccesoDbRow = {
+  id: string;
   sponsor_id: string;
+  nombre: string;
+  apellido: string | null;
+  email: string | null;
+  documento_identidad: string | null;
+  linkedin_url: string | null;
+  rol_ecosistema: string | null;
+  numero_celular: string | null;
+  pais_residencia: string | null;
+  empresa: string | null;
+  industria: string | null;
+  nivel_cargo: string | null;
+  cargo: string | null;
+  tipo: string;
+  created_at: string;
 };
 
 function esSponsorPlaceholder(sponsor: SponsorRow): boolean {
   return sponsor.nombre.trim().toLowerCase().startsWith("backlog");
+}
+
+function oneNested<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+/** Extrae cupo desde nombres tipo "12 Accesos Generales" o "Accesos VIP (5)". */
+function parseCantidadFromNombre(nombre: string): number | null {
+  const trimmed = nombre.trim();
+  if (!trimmed) return null;
+  const leading = trimmed.match(/^(\d+)\b/);
+  if (leading) return Number.parseInt(leading[1], 10);
+  const xForm = trimmed.match(/\bx\s*(\d+)\b/i);
+  if (xForm) return Number.parseInt(xForm[1], 10);
+  const paren = trimmed.match(/\((\d+)\)/);
+  if (paren) return Number.parseInt(paren[1], 10);
+  return null;
+}
+
+function esBeneficioAccesos(categoria: string | null, nombre: string): boolean {
+  if (categoria && tipoFormulario(categoria) === "accesos") return true;
+  return tipoFormulario(nombre) === "accesos";
+}
+
+function cupoDesdeCompromiso(compromiso: CompromisoRow): number {
+  const catalogo = oneNested(compromiso.catalogo_beneficios);
+  const categoria = catalogo?.categoria ?? compromiso.categoria_beneficio;
+  const nombre = catalogo?.beneficio ?? compromiso.tipo;
+  if (!esBeneficioAccesos(categoria, nombre)) return 0;
+
+  if (catalogo?.cantidad != null && catalogo.cantidad > 0) {
+    return catalogo.cantidad;
+  }
+  return parseCantidadFromNombre(nombre) ?? 0;
 }
 
 function formatDateTime(value: string | null): string {
@@ -117,33 +188,59 @@ export default async function MetricasPage({
   const { evento: slug } = await params;
   const { evento, supabase } = await getEventoBySlug(slug);
 
-  const [sponsorsResult, pageviews] = await Promise.all([
+  const [sponsorsResult, catalogoResult, pageviews] = await Promise.all([
     supabase
       .from("sponsors")
       .select("id, nombre, paquete")
       .eq("evento_id", evento.id)
       .order("nombre"),
+    supabase
+      .from("catalogo_beneficios")
+      .select("tier, categoria, beneficio, cantidad")
+      .eq("evento_id", evento.id),
     getPortalPageviewsLast7Days(),
   ]);
 
   if (sponsorsResult.error) throw new Error(sponsorsResult.error.message);
+  if (catalogoResult.error) throw new Error(catalogoResult.error.message);
 
   const todosSponsors = (sponsorsResult.data ?? []) as SponsorRow[];
   const sponsorsActivos = todosSponsors.filter(
     (sponsor) => !esSponsorPlaceholder(sponsor),
   );
   const sponsorIds = sponsorsActivos.map((sponsor) => sponsor.id);
+  const sponsorById = new Map(
+    sponsorsActivos.map((sponsor) => [sponsor.id, sponsor]),
+  );
+  const catalogoAccesos = (
+    (catalogoResult.data ?? []) as CatalogoAccesoRow[]
+  ).filter((row) => esBeneficioAccesos(row.categoria, row.beneficio));
+
+  const cupoCatalogoPorTier = new Map<string, number>();
+  for (const row of catalogoAccesos) {
+    const qty =
+      row.cantidad != null && row.cantidad > 0
+        ? row.cantidad
+        : (parseCantidadFromNombre(row.beneficio) ?? 0);
+    if (qty <= 0) continue;
+    cupoCatalogoPorTier.set(
+      row.tier,
+      (cupoCatalogoPorTier.get(row.tier) ?? 0) + qty,
+    );
+  }
 
   let compromisos: CompromisoRow[] = [];
   let archivos: ArchivoRow[] = [];
-  let accesos: AccesoRow[] = [];
+  let accesosDb: AccesoDbRow[] = [];
 
   if (sponsorIds.length > 0) {
     const [compromisosResult, archivosResult, accesosResult] =
       await Promise.all([
         supabase
           .from("compromisos")
-          .select("id, sponsor_id, estados_compromiso(es_estado_final)")
+          .select(
+            "id, sponsor_id, tipo, categoria_beneficio, catalogo_beneficios(cantidad, categoria, beneficio), estados_compromiso(es_estado_final)",
+          )
           .in("sponsor_id", sponsorIds),
         supabase
           .from("archivos")
@@ -152,8 +249,11 @@ export default async function MetricasPage({
           .in("sponsor_id", sponsorIds),
         supabase
           .from("accesos_personas")
-          .select("sponsor_id")
-          .in("sponsor_id", sponsorIds),
+          .select(
+            "id, sponsor_id, nombre, apellido, email, documento_identidad, linkedin_url, rol_ecosistema, numero_celular, pais_residencia, empresa, industria, nivel_cargo, cargo, tipo, created_at",
+          )
+          .in("sponsor_id", sponsorIds)
+          .order("created_at"),
       ]);
 
     if (compromisosResult.error) {
@@ -165,10 +265,9 @@ export default async function MetricasPage({
     compromisos = (compromisosResult.data ??
       []) as unknown as CompromisoRow[];
     archivos = (archivosResult.data ?? []) as ArchivoRow[];
-    accesos = (accesosResult.data ?? []) as AccesoRow[];
+    accesosDb = (accesosResult.data ?? []) as AccesoDbRow[];
   }
 
-  // Agregados por sponsor
   const compromisosPorSponsor = new Map<
     string,
     { total: number; completados: number }
@@ -200,14 +299,55 @@ export default async function MetricasPage({
   }
 
   const accesosPorSponsor = new Map<string, number>();
-  for (const acceso of accesos) {
+  for (const acceso of accesosDb) {
     accesosPorSponsor.set(
       acceso.sponsor_id,
       (accesosPorSponsor.get(acceso.sponsor_id) ?? 0) + 1,
     );
   }
 
-  // Resumen general
+  const cupoCompromisosPorSponsor = new Map<string, number>();
+  for (const compromiso of compromisos) {
+    const cupo = cupoDesdeCompromiso(compromiso);
+    if (cupo <= 0) continue;
+    cupoCompromisosPorSponsor.set(
+      compromiso.sponsor_id,
+      (cupoCompromisosPorSponsor.get(compromiso.sponsor_id) ?? 0) + cupo,
+    );
+  }
+
+  const accesos: AccesoMetricasRow[] = accesosDb
+    .map((acceso) => {
+      const sponsor = sponsorById.get(acceso.sponsor_id);
+      if (!sponsor) return null;
+      return {
+        id: acceso.id,
+        sponsor_id: acceso.sponsor_id,
+        sponsor_nombre: sponsor.nombre,
+        sponsor_paquete: sponsor.paquete,
+        nombre: acceso.nombre,
+        apellido: acceso.apellido,
+        email: acceso.email,
+        documento_identidad: acceso.documento_identidad,
+        linkedin_url: acceso.linkedin_url,
+        rol_ecosistema: acceso.rol_ecosistema,
+        numero_celular: acceso.numero_celular,
+        pais_residencia: acceso.pais_residencia,
+        empresa: acceso.empresa,
+        industria: acceso.industria,
+        nivel_cargo: acceso.nivel_cargo,
+        cargo: acceso.cargo,
+        tipo: acceso.tipo,
+        created_at: acceso.created_at,
+      };
+    })
+    .filter((row): row is AccesoMetricasRow => row !== null)
+    .sort((a, b) => {
+      const bySponsor = a.sponsor_nombre.localeCompare(b.sponsor_nombre, "es");
+      if (bySponsor !== 0) return bySponsor;
+      return a.created_at.localeCompare(b.created_at);
+    });
+
   const totalCompromisos = compromisos.length;
   const totalCompletados = compromisos.filter(
     (compromiso) => compromiso.estados_compromiso?.es_estado_final,
@@ -234,7 +374,6 @@ export default async function MetricasPage({
 
   const totalAccesos = accesos.length;
 
-  // Tabla por sponsor
   const filas = sponsorsActivos
     .map((sponsor) => {
       const compromisosSponsor = compromisosPorSponsor.get(sponsor.id) ?? {
@@ -246,6 +385,13 @@ export default async function MetricasPage({
         100,
         Math.round((subidos / TOTAL_INSUMOS_REQUERIDOS) * 100),
       );
+      const cupoDesdeCompromisos =
+        cupoCompromisosPorSponsor.get(sponsor.id) ?? 0;
+      const cupoDesdeCatalogo = sponsor.paquete
+        ? (cupoCatalogoPorTier.get(sponsor.paquete) ?? 0)
+        : 0;
+      const accesosTotales =
+        cupoDesdeCompromisos > 0 ? cupoDesdeCompromisos : cupoDesdeCatalogo;
       return {
         id: sponsor.id,
         nombre: sponsor.nombre,
@@ -254,21 +400,14 @@ export default async function MetricasPage({
         compromisosTotal: compromisosSponsor.total,
         pctInsumos,
         personasRegistradas: accesosPorSponsor.get(sponsor.id) ?? 0,
+        accesosTotales,
         ultimaActividad: ultimaActividadPorSponsor.get(sponsor.id) ?? null,
       };
     })
     .sort((a, b) => b.pctInsumos - a.pctInsumos);
 
-  return (
+  const resumen = (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-xl font-semibold">Métricas</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Resumen de cumplimiento y actividad de los sponsors de{" "}
-          {evento.nombre}. Excluye sponsors "Backlog".
-        </p>
-      </div>
-
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Sponsors activos"
@@ -297,7 +436,7 @@ export default async function MetricasPage({
           <div className="mt-4 rounded-xl border border-dashed border-border bg-white px-6 py-14 text-center">
             <p className="font-medium">No hay sponsors activos para mostrar</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Los sponsors "Backlog" se excluyen de estas métricas.
+              Los sponsors &quot;Backlog&quot; se excluyen de estas métricas.
             </p>
           </div>
         ) : (
@@ -316,9 +455,7 @@ export default async function MetricasPage({
               <TableBody>
                 {filas.map((fila) => (
                   <TableRow key={fila.id}>
-                    <TableCell className="font-medium">
-                      {fila.nombre}
-                    </TableCell>
+                    <TableCell className="font-medium">{fila.nombre}</TableCell>
                     <TableCell>{fila.paquete ?? "—"}</TableCell>
                     <TableCell>
                       {fila.compromisosTotal === 0
@@ -326,7 +463,11 @@ export default async function MetricasPage({
                         : `${fila.compromisosCompletados}/${fila.compromisosTotal}`}
                     </TableCell>
                     <TableCell>{fila.pctInsumos}%</TableCell>
-                    <TableCell>{fila.personasRegistradas}</TableCell>
+                    <TableCell>
+                      {fila.accesosTotales > 0
+                        ? `${fila.personasRegistradas}/${fila.accesosTotales}`
+                        : String(fila.personasRegistradas)}
+                    </TableCell>
                     <TableCell>
                       {formatDateTime(fila.ultimaActividad)}
                     </TableCell>
@@ -378,6 +519,25 @@ export default async function MetricasPage({
           </div>
         </div>
       </section>
+    </div>
+  );
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-xl font-semibold">Métricas</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Resumen de cumplimiento y actividad de los sponsors de{" "}
+          {evento.nombre}. Excluye sponsors &quot;Backlog&quot;.
+        </p>
+      </div>
+
+      <MetricasClient
+        resumen={resumen}
+        accesos={accesos}
+        eventoNombre={evento.nombre}
+        accesosCount={totalAccesos}
+      />
     </div>
   );
 }

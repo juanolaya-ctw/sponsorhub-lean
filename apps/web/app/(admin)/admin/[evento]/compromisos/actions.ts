@@ -173,8 +173,9 @@ export async function createCompromisoSponsor(
 }
 
 /**
- * Elimina un compromiso creado en el panel.
- * Contrato y filas con notion_page_id solo se quitan desde Notion / prune.
+ * Elimina un compromiso de un sponsor.
+ * Contrato solo desde Notion. Filas LAB se pueden forzar desde admin
+ * (útil con duplicados); si siguen en Notion, el próximo sync las recrea.
  */
 export async function deleteCompromisoSponsor(
   compromisoId: string,
@@ -195,12 +196,6 @@ export async function deleteCompromisoSponsor(
       error: "Los beneficios de Contrato solo se eliminan desde Notion.",
     };
   }
-  if (data.notion_page_id) {
-    return {
-      error:
-        "Este beneficio viene de LAB Beneficios. Elimínalo en Notion; el sync lo quitará.",
-    };
-  }
 
   const { error } = await supabase
     .from("compromisos")
@@ -209,6 +204,86 @@ export async function deleteCompromisoSponsor(
   if (error) return { error: error.message };
 
   revalidateCompromisos(eventoSlug, data.sponsor_id as string);
+  return { error: null };
+}
+
+/**
+ * Renombra un tier/paquete en catálogo + sponsors (+ artículos del evento).
+ */
+export async function renameTier(
+  eventoId: string,
+  eventoSlug: string,
+  oldName: string,
+  newName: string,
+) {
+  const { supabase } = await requireAdmin();
+  const from = oldName.trim();
+  const to = newName.trim();
+
+  if (!eventoId || !eventoSlug || !from || !to) {
+    return { error: "Nombre de tier inválido." };
+  }
+  if (from === to) {
+    return { error: null };
+  }
+
+  const { data: clash, error: clashError } = await supabase
+    .from("catalogo_beneficios")
+    .select("id")
+    .eq("evento_id", eventoId)
+    .eq("tier", to)
+    .limit(1)
+    .maybeSingle();
+
+  if (clashError) return { error: clashError.message };
+  if (clash) {
+    return {
+      error: `Ya existe el tier “${to}” en este evento. Elige otro nombre.`,
+    };
+  }
+
+  const { error: catalogError } = await supabase
+    .from("catalogo_beneficios")
+    .update({ tier: to })
+    .eq("evento_id", eventoId)
+    .eq("tier", from);
+
+  if (catalogError) return { error: catalogError.message };
+
+  const { error: sponsorsError } = await supabase
+    .from("sponsors")
+    .update({ paquete: to })
+    .eq("evento_id", eventoId)
+    .eq("paquete", from);
+
+  if (sponsorsError) return { error: sponsorsError.message };
+
+  const { data: sponsorIds, error: sponsorIdsError } = await supabase
+    .from("sponsors")
+    .select("id")
+    .eq("evento_id", eventoId);
+
+  if (sponsorIdsError) return { error: sponsorIdsError.message };
+
+  const ids = (sponsorIds ?? []).map((row) => row.id as string);
+  if (ids.length > 0) {
+    const { error: articulosError } = await supabase
+      .from("articulos")
+      .update({ tier: to })
+      .in("sponsor_id", ids)
+      .eq("tier", from);
+
+    // Si la tabla aún no existe en algún entorno, no tumbar el rename.
+    if (articulosError && articulosError.code !== "42P01") {
+      return { error: articulosError.message };
+    }
+  }
+
+  revalidatePath(`/admin/${eventoSlug}/compromisos`);
+  revalidatePath(`/admin/${eventoSlug}/sponsors`);
+  revalidatePath(`/admin/${eventoSlug}/metricas`);
+  revalidatePath(`/admin/${eventoSlug}/articulos`);
+  revalidatePath("/portal/dashboard");
   return { error: null };
 }
 

@@ -19,6 +19,7 @@ import {
   FormulariosEventoSection,
   type FormularioEventoRow,
 } from "./formularios-evento";
+import { RenameTierButton } from "./rename-tier-button";
 
 type Beneficio = {
   id: string;
@@ -187,9 +188,14 @@ export default async function CompromisosPage({
                 key={tier}
                 className="overflow-hidden rounded-xl border border-border bg-white"
               >
-                <h3 className="border-b border-border bg-muted/50 px-4 py-3 font-semibold">
-                  {tier}
-                </h3>
+                <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/50 px-4 py-3">
+                  <h3 className="font-semibold">{tier}</h3>
+                  <RenameTierButton
+                    eventoId={evento.id}
+                    eventoSlug={evento.slug}
+                    tier={tier}
+                  />
+                </div>
                 <ul className="divide-y divide-border">
                   {items.map((item) => (
                     <li key={item.id} className="flex items-start gap-4 px-4 py-3">

@@ -168,7 +168,8 @@ async function handleLabBeneficioPage(
     supabase,
     eventoId,
     [mapped],
-    { prune: false },
+    // Solo poda sponsors quitados de esta fila LAB; no toca otras páginas.
+    { prune: "scoped" },
   );
 
   for (const err of result.errores) {

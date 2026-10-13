@@ -82,11 +82,7 @@ function SubmitButton() {
 }
 
 function canDeleteFromPanel(row: BeneficioCompromisoRow): boolean {
-  return (
-    row.tipo_beneficio !== null &&
-    TIPOS_PERSONALIZADOS.has(row.tipo_beneficio) &&
-    !row.notion_page_id
-  );
+  return row.tipo_beneficio !== "Contrato";
 }
 
 function DeleteCompromisoButton({
@@ -98,6 +94,7 @@ function DeleteCompromisoButton({
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const fromNotion = Boolean(compromiso.notion_page_id);
 
   return (
     <div className="flex flex-col items-end gap-1">
@@ -111,7 +108,11 @@ function DeleteCompromisoButton({
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar beneficio</AlertDialogTitle>
             <AlertDialogDescription>
-              ¿Eliminar “{compromiso.tipo}”? Esta acción no se puede deshacer.
+              ¿Eliminar “{compromiso.tipo}” de este sponsor? Esta acción no se
+              puede deshacer.
+              {fromNotion
+                ? " Si el beneficio sigue en LAB Beneficios (Notion), el próximo sync puede recrearlo."
+                : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -461,7 +462,7 @@ export function BeneficiosSection({
         <div className="mt-4 space-y-5">
           <BeneficioGroup
             title="Contrato"
-            description="Beneficios base del tier. Solo se editan o eliminan desde Notion."
+            description="Beneficios base del tier. Solo se eliminan desde Notion."
             rows={contrato}
             estados={estados}
             eventoSlug={eventoSlug}
