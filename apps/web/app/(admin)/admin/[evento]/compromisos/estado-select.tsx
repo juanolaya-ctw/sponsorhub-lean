@@ -35,7 +35,8 @@ export function EstadoSelect({
         <select
           value={value}
           disabled={pending}
-          aria-label="Cambiar estado"
+          aria-label="Cambiar estado de entrega (se sincroniza desde Notion)"
+          title="Estado de entrega CS. El próximo sync de Notion puede sobrescribirlo."
           className="h-8 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
           onChange={(event) => {
             const previous = value;

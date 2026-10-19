@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { getEventoBySlug } from "@/lib/admin/eventos";
 import { requireAdmin } from "@/lib/auth/require-admin";
+import {
+  findEmptyDuplicateSponsors,
+  mergeSponsors,
+} from "@/lib/notion/merge-sponsors";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const BUCKET = "sponsorhub-archivos";
@@ -100,4 +104,35 @@ export async function updateSponsorCtMedia(
   revalidatePath(`/portal/dashboard`);
   revalidatePath(`/portal/media`);
   return { error: null };
+}
+
+export async function listSponsorDuplicateCandidates(eventoSlug: string) {
+  await requireAdmin();
+  const { evento } = await getEventoBySlug(eventoSlug);
+  const admin = createAdminClient();
+  try {
+    const candidates = await findEmptyDuplicateSponsors(admin, evento.id);
+    return { candidates, error: null as string | null };
+  } catch (err) {
+    return {
+      candidates: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export async function mergeSponsorDuplicate(
+  keepId: string,
+  archiveId: string,
+  eventoSlug: string,
+) {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const result = await mergeSponsors(admin, keepId, archiveId);
+  if (!result.error) {
+    revalidatePath(`/admin/${eventoSlug}/sponsors`);
+    revalidatePath(`/admin/${eventoSlug}/sponsors/${keepId}`);
+    revalidatePath(`/admin/${eventoSlug}/metricas`);
+  }
+  return result;
 }

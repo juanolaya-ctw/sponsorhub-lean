@@ -11,7 +11,10 @@ import {
   LAB_SPONSOR_CRM,
   mapLabBeneficioPage,
 } from "@/lib/notion/fetch-lab-beneficios";
-import { upsertCompromisosFromLabBeneficios } from "@/lib/notion/upsert-compromisos";
+import {
+  softArchiveCompromisosByNotionPageIds,
+  upsertCompromisosFromLabBeneficios,
+} from "@/lib/notion/upsert-compromisos";
 import {
   toNotionSyncFields,
   upsertSponsorFromNotion,
@@ -44,6 +47,7 @@ type NotionPageParent = {
 
 type NotionPageWithProps = {
   id: string;
+  archived?: boolean;
   parent?: NotionPageParent;
   properties: Record<string, unknown>;
 };
@@ -154,6 +158,22 @@ async function handleLabBeneficioPage(
   eventoId: string,
   page: NotionPageWithProps,
 ): Promise<void> {
+  if (page.archived) {
+    const archive = await softArchiveCompromisosByNotionPageIds(
+      supabase,
+      eventoId,
+      [page.id],
+    );
+    if (archive.error) {
+      console.error(`[webhook/notion] archive LAB ${page.id}: ${archive.error}`);
+    } else if (archive.archivados > 0) {
+      console.info(
+        `[webhook/notion] LAB ${page.id} archivada: ${archive.archivados} compromiso(s).`,
+      );
+    }
+    return;
+  }
+
   const mapped = mapLabBeneficioPage({
     id: page.id,
     properties: page.properties,
@@ -161,6 +181,19 @@ async function handleLabBeneficioPage(
 
   if ("skip" in mapped) {
     console.warn(`[webhook/notion] ${mapped.skip}`);
+    // CRM vacío o fila inválida → soft-archive pairs de esta página LAB.
+    if (/Sponsor \(CRM\) vacío/i.test(mapped.skip)) {
+      const archive = await softArchiveCompromisosByNotionPageIds(
+        supabase,
+        eventoId,
+        [page.id],
+      );
+      if (archive.error) {
+        console.error(
+          `[webhook/notion] archive empty-CRM ${page.id}: ${archive.error}`,
+        );
+      }
+    }
     return;
   }
 
@@ -218,8 +251,28 @@ export async function POST(request: Request) {
     }
 
     const notion = getNotionClient();
-    const page = await notion.pages.retrieve({ page_id: entity.id });
-    if (!("properties" in page)) {
+    let page: unknown;
+    try {
+      page = await notion.pages.retrieve({ page_id: entity.id });
+    } catch (retrieveErr) {
+      const message =
+        retrieveErr instanceof Error ? retrieveErr.message : String(retrieveErr);
+      // Página borrada en Notion → soft-archive compromisos asociados.
+      if (/could not find|404|not found/i.test(message)) {
+        const archive = await softArchiveCompromisosByNotionPageIds(
+          supabase,
+          evento.id,
+          [entity.id],
+        );
+        console.info(
+          `[webhook/notion] page missing ${entity.id}: archivados=${archive.archivados}`,
+        );
+        return NextResponse.json({ ok: true, archived: true });
+      }
+      throw retrieveErr;
+    }
+
+    if (!page || typeof page !== "object" || !("properties" in page)) {
       console.error(`[webhook/notion] Página ${entity.id} sin properties.`);
       return NextResponse.json({ ok: true });
     }

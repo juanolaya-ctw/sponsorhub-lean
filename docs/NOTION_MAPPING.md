@@ -120,46 +120,61 @@ ha hecho" (esta tabla). Esa desconexión es precisamente lo que
 automática resuelven del lado de la app — no se replica este Kanban
 interno de CS en el esquema de SponsorHub.
 
-## GovTech — adaptador de sync (fase actual)
+## GovTech — adaptador de sync (fuente de verdad)
 
-El cron `/api/sync/notion` **solo** procesa `eventos.slug = 'govtech-2026'`.
-No consulta el Customer Success Board de CTW/CTF ni corre
-`compromiso.mapper.ts`.
+El cron `GET /api/sync/notion` y el webhook `POST /api/webhook/notion`
+**solo** procesan `eventos.slug = 'govtech-2026'`. No usan
+`compromiso.mapper.ts` (legacy CTW).
 
-### Database de sponsors GovTech
+Reconciliación one-shot: `GET/POST /api/sync/notion/reconcile`
+(Bearer `CRON_SECRET`). Sin `?apply=1` = dry-run; con apply o POST =
+soft-archive huérfanos, upsert LAB, merge duplicados vacíos.
 
-El UUID se configura en `eventos.notion_source_id` (fallback:
-`NOTION_GOVTECH_DATA_SOURCE_ID`). El código no hardcodea un collection ID
-de CTW.
+### 1) CRM Sponsors
 
-Filtro de páginas: property `Estado` (select) en `Activo` o
-`Pendiente por Kick off`. Quien salga de esos valores **no se
-borra** de Postgres (el portal/usuario del sponsor se conserva).
+UUID: `NOTION_GOVTECH_DATA_SOURCE_ID` (manda) o `eventos.notion_source_id`.
 
-Allowlist ejecutable: `GOVTECH_SPONSOR_FIELD_ALLOWLIST` en
-`lib/notion/allowlist.ts`. Se extraen strings (title, rich_text, select,
-email, etc.) — nunca el objeto crudo de Notion. Columnas destino:
+Filtro: property `Estado` ∈ `{Activo, Pendiente por Kick off}`.
 
-| Campo Notion (nombres CS Board + alias comunes) | Columna Postgres |
+Upsert por `(evento_id, notion_page_id)` — solo `nombre` + `paquete` +
+`archivado_at = null`. No pisa contacto ni operativos del Hub.
+
+### 2) LAB Beneficios → `compromisos`
+
+UUID: `NOTION_LAB_BENEFICIOS_ID`.
+
+| Campo Notion | Columna / efecto |
 |---|---|
-| `Sponsor*` / `Sponsor` / `Nombre` | `nombre` |
-| `*Paquete` / `Paquete` | `paquete` |
-| `*Contacto` / `Contacto` | `contacto_nombre` |
-| `*Mail Principal` / `Mail Principal` / `Email` | `contacto_email` |
-| `*Teléfono` / `Teléfono` / `Telefono` | `contacto_telefono` |
-| `Cargo` | `contacto_cargo` |
-| `Link Logo` / `Logo` | `logo_url` |
+| `Beneficio` (title) | `compromisos.tipo` |
+| `Tipo de Beneficio` | `tipo_beneficio` (Contrato / Upgrade / Tailor made / Adicional) |
+| `Categoria beneficio` | `categoria_beneficio` (Pre/Durante/Post evento) |
+| `Sponsor (CRM)` (relation) | Explota a N filas (una por sponsor CRM) |
+| `Estado` (select/status) | `estado_id` vía mapeo a `estados_compromiso` |
 
-`notion_page_id` = id de la página. Speaker / entregables CTW **no** se
-escriben: esas columnas no existen en `sponsors`.
+Clave de upsert: `(sponsor_id, notion_page_id)` con UUID **normalizado**.
+Insert solo si el pair no existe; update metadatos + estado; reactiva si
+estaba soft-archivado.
 
-Tras el upsert, el trigger `generar_compromisos_desde_catalogo` crea
-compromisos desde el catálogo GovTech ya seedado. El **status** de cada
-beneficio se gestiona en admin/portal, no se pisa desde Notion.
+**Bajas:** soft-delete (`compromisos.archivado_at`). Cron prune = archivar
+pairs que ya no están en LAB. Webhook archiva si la página está `archived`
+o 404. Filas `notion_page_id IS NULL` (panel) no se tocan.
 
-Los valores de `paquete` deben coincidir texto por texto con el catálogo
-(`Associate Partner`, `Elite Partner`, `Deluxe Partner`); si no, queda
-alerta `tier_sin_match`.
+**Estados (entrega CS — Notion manda):**
 
-Pendiente (fuera de esta fase): `catalogo.mapper.ts` contra la database
-del catálogo; sync de status de beneficios; CTW/CTF.
+| Notion LAB | Hub `estados_compromiso` |
+|---|---|
+| Pendiente / vacío | Pendiente |
+| En curso | En progreso |
+| Listo | Completado |
+
+**Insumo vs entrega:** el progreso de archivos/personas es “Insumo
+recibido”; `estado_id` es “Entrega CS”. UI muestra ambas señales.
+
+El trigger `generar_compromisos_desde_catalogo` está **deshabilitado**
+para `govtech-2026` (migración 0009).
+
+### Sponsors duplicados
+
+Soft-flag `sponsors.archivado_at`. Admin: panel de merge en
+`/admin/[evento]/sponsors`. Reconcile auto-fusiona vacíos por nombre
+normalizado cuando apply=1.

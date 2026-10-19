@@ -16,6 +16,7 @@ import {
   labelInsumoFromTipo,
   INSUMOS_REQUERIDOS,
 } from "@/lib/portal/insumos";
+import { DosDontsTable } from "@/components/portal/dos-donts-table";
 
 export type InsumoArchivoAdmin = {
   id: string;
@@ -153,6 +154,7 @@ function NewsletterCard({
       />
       {open ? (
         <div className="space-y-4 border-t border-border px-4 py-4">
+          <DosDontsTable variante="newsletter" />
           {payload ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-4 sm:col-span-2">
@@ -243,6 +245,7 @@ function LinkedInCard({
       />
       {open ? (
         <div className="space-y-4 border-t border-border px-4 py-4">
+          <DosDontsTable variante="redes" />
           {payload ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">

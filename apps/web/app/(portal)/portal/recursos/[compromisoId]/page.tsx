@@ -178,6 +178,36 @@ export default async function BeneficioDetallePage({
             <CargadoBadge />
           ) : null}
         </h1>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <span
+            className="rounded-full border border-border px-2.5 py-0.5 font-medium"
+            style={{
+              borderColor:
+                beneficio.progreso.completed || beneficio.logoCargado
+                  ? "#16a34a"
+                  : undefined,
+              backgroundColor:
+                beneficio.progreso.completed || beneficio.logoCargado
+                  ? "#16a34a20"
+                  : undefined,
+            }}
+          >
+            {beneficio.progreso.completed || beneficio.logoCargado
+              ? "Insumo recibido"
+              : "Insumo pendiente"}
+          </span>
+          <span
+            className="rounded-full border px-2.5 py-0.5 font-medium"
+            style={{
+              borderColor: beneficio.estadoColor ?? undefined,
+              backgroundColor: beneficio.estadoColor
+                ? `${beneficio.estadoColor}20`
+                : undefined,
+            }}
+          >
+            Entrega: {beneficio.estadoNombre ?? "Pendiente"}
+          </span>
+        </div>
       </div>
 
       {beneficio.detalleSolicitud ? (
@@ -288,11 +318,21 @@ export default async function BeneficioDetallePage({
       {beneficio.tipo === "addon" ? <AddonDeck archivos={decks} /> : null}
 
       {beneficio.tipo === "stand" ? (
-        <StandRenderForm
-          compromisoId={beneficio.compromisoId}
-          renders={standRenders}
-          revision={beneficio.standRevision ?? null}
-        />
+        <div className="space-y-6">
+          <StandRenderForm
+            compromisoId={beneficio.compromisoId}
+            renders={standRenders}
+            revision={beneficio.standRevision ?? null}
+          />
+          <AccesosForm
+            sponsorId={sponsor.sponsorId}
+            compromisoId={beneficio.compromisoId}
+            accesoTipo="arl_montaje"
+            cantidad={beneficio.cantidad}
+            personas={beneficio.personas}
+            titulo="Personal de stand"
+          />
+        </div>
       ) : null}
 
       {beneficio.tipo === "informativo" ? (

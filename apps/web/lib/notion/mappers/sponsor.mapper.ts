@@ -1,4 +1,5 @@
 import { GOVTECH_SPONSOR_FIELD_ALLOWLIST } from "@/lib/notion/allowlist";
+import { tryNormalizeNotionId } from "@/lib/notion/client";
 import type { NotionSponsorPage } from "@/lib/notion/fetch-sponsors";
 import { unwrapNotionProperty, unwrapProperties } from "@/lib/notion/unwrap";
 
@@ -51,7 +52,7 @@ export function mapGovtechSponsor(
   }
 
   return {
-    notion_page_id: page.id,
+    notion_page_id: tryNormalizeNotionId(page.id) ?? page.id,
     nombre,
     paquete: mapped.paquete ?? null,
     contacto_nombre: mapped.contacto_nombre ?? null,

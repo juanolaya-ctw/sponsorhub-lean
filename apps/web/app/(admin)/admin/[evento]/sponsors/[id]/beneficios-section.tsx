@@ -273,6 +273,7 @@ function BeneficioGroup({
   standRevisionPorCompromiso,
   formulariosPorCompromiso,
   formulariosEventoPorNombre,
+  insumoCompletoPorCompromiso,
 }: {
   title: string;
   description?: string;
@@ -285,6 +286,7 @@ function BeneficioGroup({
   standRevisionPorCompromiso: Map<string, StandRevision>;
   formulariosPorCompromiso: Map<string, FormularioPorSponsor>;
   formulariosEventoPorNombre?: Map<string, string>;
+  insumoCompletoPorCompromiso?: Map<string, boolean>;
 }) {
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-white">
@@ -304,7 +306,13 @@ function BeneficioGroup({
             <TableRow>
               <TableHead>Beneficio</TableHead>
               <TableHead>Categoría</TableHead>
-              <TableHead>Estado</TableHead>
+              <TableHead>Insumo</TableHead>
+              <TableHead>
+                Entrega CS
+                <span className="mt-0.5 block text-[10px] font-normal normal-case text-muted-foreground">
+                  Sync Notion
+                </span>
+              </TableHead>
               <TableHead>Archivo / formulario</TableHead>
               <TableHead className="w-28 text-right">Acciones</TableHead>
             </TableRow>
@@ -330,6 +338,17 @@ function BeneficioGroup({
                   </div>
                 </TableCell>
                 <TableCell>{row.categoria_beneficio ?? "—"}</TableCell>
+                <TableCell>
+                  {insumoCompletoPorCompromiso?.get(row.id) ? (
+                    <span className="inline-flex rounded-full border border-emerald-600/30 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                      Insumo recibido
+                    </span>
+                  ) : (
+                    <span className="inline-flex rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                      Insumo pendiente
+                    </span>
+                  )}
+                </TableCell>
                 <TableCell>
                   <EstadoSelect
                     compromisoId={row.id}
@@ -414,6 +433,7 @@ export function BeneficiosSection({
   standRevisionPorCompromiso,
   formulariosPorCompromiso,
   formulariosEventoPorNombre,
+  insumoCompletoPorCompromiso,
 }: {
   compromisos: BeneficioCompromisoRow[];
   estados: EstadoOption[];
@@ -425,6 +445,7 @@ export function BeneficiosSection({
   standRevisionPorCompromiso: Map<string, StandRevision>;
   formulariosPorCompromiso: Map<string, FormularioPorSponsor>;
   formulariosEventoPorNombre?: Map<string, string>;
+  insumoCompletoPorCompromiso?: Map<string, boolean>;
 }) {
   const contrato = compromisos.filter(
     (row) => row.tipo_beneficio === "Contrato",
@@ -479,6 +500,7 @@ export function BeneficiosSection({
             standRevisionPorCompromiso={standRevisionPorCompromiso}
             formulariosPorCompromiso={formulariosPorCompromiso}
             formulariosEventoPorNombre={formulariosEventoPorNombre}
+            insumoCompletoPorCompromiso={insumoCompletoPorCompromiso}
           />
           <BeneficioGroup
             title="Adicional / Upgrade / Tailor made"
@@ -492,6 +514,7 @@ export function BeneficiosSection({
             standRevisionPorCompromiso={standRevisionPorCompromiso}
             formulariosPorCompromiso={formulariosPorCompromiso}
             formulariosEventoPorNombre={formulariosEventoPorNombre}
+            insumoCompletoPorCompromiso={insumoCompletoPorCompromiso}
           />
           {otros.length > 0 ? (
             <BeneficioGroup
@@ -506,6 +529,7 @@ export function BeneficiosSection({
               standRevisionPorCompromiso={standRevisionPorCompromiso}
               formulariosPorCompromiso={formulariosPorCompromiso}
               formulariosEventoPorNombre={formulariosEventoPorNombre}
+              insumoCompletoPorCompromiso={insumoCompletoPorCompromiso}
             />
           ) : null}
         </div>

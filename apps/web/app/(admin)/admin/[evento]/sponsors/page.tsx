@@ -7,8 +7,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { findEmptyDuplicateSponsors } from "@/lib/notion/merge-sponsors";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { DeleteSponsorButton } from "./delete-sponsor-button";
+import { SponsorDuplicatesPanel } from "./sponsor-duplicates";
 
 type SponsorRow = {
   id: string;
@@ -42,6 +45,7 @@ export default async function SponsorsPage({
       "id, nombre, paquete, ct_media, contacto_email, created_at, eventos!inner(slug)",
     )
     .eq("eventos.slug", slug)
+    .is("archivado_at", null)
     .order("nombre");
 
   if (error) {
@@ -50,12 +54,36 @@ export default async function SponsorsPage({
 
   const sponsors = (data ?? []) as SponsorRow[];
 
+  let duplicateCandidates: Awaited<
+    ReturnType<typeof findEmptyDuplicateSponsors>
+  > = [];
+  try {
+    const { data: eventoRow } = await supabase
+      .from("eventos")
+      .select("id")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (eventoRow?.id) {
+      duplicateCandidates = await findEmptyDuplicateSponsors(
+        createAdminClient(),
+        eventoRow.id as string,
+      );
+    }
+  } catch {
+    duplicateCandidates = [];
+  }
+
   return (
     <div>
       <h1 className="text-xl font-semibold">Sponsors</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Sponsors del evento activo
       </p>
+
+      <SponsorDuplicatesPanel
+        eventoSlug={slug}
+        initialCandidates={duplicateCandidates}
+      />
 
       {sponsors.length === 0 ? (
         <div className="mt-8 rounded-xl border border-dashed border-border bg-white px-6 py-14 text-center">

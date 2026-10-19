@@ -134,7 +134,8 @@ export default async function CompromisosPage({
     const { data: compromisosData, error: compromisosError } = await supabase
       .from("compromisos")
       .select("tipo, sponsor_id")
-      .in("sponsor_id", sponsorIds);
+      .in("sponsor_id", sponsorIds)
+      .is("archivado_at", null);
     if (compromisosError) throw new Error(compromisosError.message);
 
     const counts = new Map<string, Set<string>>();

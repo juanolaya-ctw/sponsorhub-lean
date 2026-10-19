@@ -153,6 +153,7 @@ export async function GET(request: Request) {
 
   // --- LAB Beneficios → compromisos (solo GovTech; slug ya filtrado) ---
   let compromisosSincronizados = 0;
+  let compromisosArchivados = 0;
   const labBeneficiosId = tryNormalizeNotionId(
     process.env.NOTION_LAB_BENEFICIOS_ID ?? null,
   );
@@ -175,6 +176,7 @@ export async function GET(request: Request) {
         labResult.rows,
       );
       compromisosSincronizados = upsertResult.compromisosSincronizados;
+      compromisosArchivados = upsertResult.archivados;
       errores.push(...upsertResult.errores);
     } catch (err) {
       const message =
@@ -196,6 +198,7 @@ export async function GET(request: Request) {
     muestraPropiedades,
     sponsorsSincronizados,
     compromisosSincronizados,
+    compromisosArchivados,
     errores,
   });
 }

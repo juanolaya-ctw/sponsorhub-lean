@@ -8,6 +8,7 @@ import {
   normalizeNotionId,
   tryNormalizeNotionId,
 } from "./client";
+import { LAB_ESTADO_PROPERTY_CANDIDATES } from "./map-estado-lab";
 import { resolveDataSource } from "./fetch-sponsors";
 
 export const LAB_BENEFICIO_TITLE = "Beneficio";
@@ -32,7 +33,7 @@ export type TipoBeneficio = (typeof TIPOS_BENEFICIO)[number];
 export type CategoriaBeneficio = (typeof CATEGORIAS_BENEFICIO)[number];
 
 export type LabBeneficioRow = {
-  /** Page ID de la fila en LAB Beneficios (clave de upsert). */
+  /** Page ID de la fila en LAB Beneficios (clave de upsert), normalizado. */
   notion_page_id: string;
   /** Título → compromisos.tipo */
   nombre: string;
@@ -40,7 +41,19 @@ export type LabBeneficioRow = {
   categoria_beneficio: CategoriaBeneficio | null;
   /** Page IDs del CRM de sponsors (relation). */
   sponsor_crm_page_ids: string[];
+  /** Valor crudo del Estado en Notion (entrega CS). */
+  estado_notion: string | null;
 };
+
+function readLabEstado(
+  properties: Record<string, unknown>,
+): string | null {
+  for (const name of LAB_ESTADO_PROPERTY_CANDIDATES) {
+    const raw = unwrapNotionProperty(getProperty(properties, name));
+    if (raw?.trim()) return raw.trim();
+  }
+  return null;
+}
 
 type QueryResult = {
   results: Array<{ id: string; properties?: Record<string, unknown> }>;
@@ -58,12 +71,12 @@ function assertLabBeneficiosDatabase(
   const missing: string[] = [];
   if (!has(LAB_BENEFICIO_TITLE)) missing.push(LAB_BENEFICIO_TITLE);
   if (!has(LAB_TIPO_BENEFICIO)) missing.push(LAB_TIPO_BENEFICIO);
-  if (!has(LAB_CATEGORIA_BENEFICIO)) missing.push(LAB_CATEGORIA_BENEFICIO);
   if (!has(LAB_SPONSOR_CRM)) missing.push(LAB_SPONSOR_CRM);
+  // "Categoria beneficio" es opcional: el LAB operativo a veces no la tiene.
 
   if (missing.length > 0) {
     throw new Error(
-      `Esta Notion no parece LAB Beneficios (faltan: ${missing.join(", ")}). Columns: ${keys.join(", ")}. Conecta NOTION_LAB_BENEFICIOS_ID a la database con Beneficio / Tipo de Beneficio / Categoria beneficio / Sponsor (CRM).`,
+      `Esta Notion no parece LAB Beneficios (faltan: ${missing.join(", ")}). Columns: ${keys.join(", ")}. Conecta NOTION_LAB_BENEFICIOS_ID a la database con Beneficio / Tipo de Beneficio / Sponsor (CRM).`,
     );
   }
 }
@@ -128,9 +141,12 @@ export function mapLabBeneficioPage(
   const tipoRaw = unwrapNotionProperty(
     getProperty(page.properties, LAB_TIPO_BENEFICIO),
   );
-  const categoriaRaw = unwrapNotionProperty(
-    getProperty(page.properties, LAB_CATEGORIA_BENEFICIO),
-  );
+  const categoriaRaw =
+    unwrapNotionProperty(
+      getProperty(page.properties, LAB_CATEGORIA_BENEFICIO),
+    ) ??
+    unwrapNotionProperty(getProperty(page.properties, "Categoría")) ??
+    unwrapNotionProperty(getProperty(page.properties, "Categoria"));
   const relationIds = unwrapRelationIds(
     getProperty(page.properties, LAB_SPONSOR_CRM),
   );
@@ -159,12 +175,15 @@ export function mapLabBeneficioPage(
     .map((id) => tryNormalizeNotionId(id) ?? id)
     .filter(Boolean);
 
+  const notionPageId = tryNormalizeNotionId(page.id) ?? page.id;
+
   return {
-    notion_page_id: page.id,
+    notion_page_id: notionPageId,
     nombre,
     tipo_beneficio,
     categoria_beneficio,
     sponsor_crm_page_ids,
+    estado_notion: readLabEstado(page.properties),
   };
 }
 

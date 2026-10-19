@@ -9,20 +9,13 @@ import {
 } from "@/lib/portal/beneficios";
 import { Button } from "@/components/ui/button";
 
-function EstadoBadge({
-  nombre,
+function Chip({
+  label,
   color,
 }: {
-  nombre: string | null;
-  color: string | null;
+  label: string
+  color?: string | null
 }) {
-  if (!nombre) {
-    return (
-      <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-        Pendiente
-      </span>
-    );
-  }
   return (
     <span
       className="shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium"
@@ -31,9 +24,9 @@ function EstadoBadge({
         backgroundColor: color ? `${color}20` : undefined,
       }}
     >
-      {nombre}
+      {label}
     </span>
-  );
+  )
 }
 
 export default async function RecursosPage() {
@@ -83,22 +76,33 @@ export default async function RecursosPage() {
                   </span>
                   {item.categoria}
                 </p>
-                <EstadoBadge
-                  nombre={
-                    item.tipo === "branding" && item.logoCargado
-                      ? "Cargado"
-                      : item.estadoNombre
-                  }
-                  color={
-                    item.tipo === "branding" && item.logoCargado
-                      ? "#16a34a"
-                      : item.estadoColor
-                  }
-                />
               </div>
               <h2 className="mt-3 text-lg font-semibold leading-snug">
                 {item.beneficio}
               </h2>
+
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <Chip
+                  label={
+                    item.progreso.completed ||
+                    (item.tipo === "branding" && item.logoCargado)
+                      ? "Insumo recibido"
+                      : requiereAccion(item.tipo)
+                        ? "Insumo pendiente"
+                        : "Sin insumo"
+                  }
+                  color={
+                    item.progreso.completed ||
+                    (item.tipo === "branding" && item.logoCargado)
+                      ? "#16a34a"
+                      : "#94a3b8"
+                  }
+                />
+                <Chip
+                  label={`Entrega: ${item.estadoNombre ?? "Pendiente"}`}
+                  color={item.estadoColor}
+                />
+              </div>
 
               {requiereAccion(item.tipo) ? (
                 <div className="mt-4">

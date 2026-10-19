@@ -15,6 +15,7 @@ import {
   TIPO_LINKEDIN_INSTAGRAM,
   type LinkedInInstagramPayload,
 } from "@/lib/portal/beneficios";
+import { DosDontsTable } from "@/components/portal/dos-donts-table";
 
 const MAX_PALABRAS = 80;
 
@@ -340,9 +341,10 @@ export function LinkedInInstagramForm({
           {detalleSolicitud}
         </p>
       ) : null}
+      <DosDontsTable variante="redes" className="mt-4 space-y-4" />
       <form
         onSubmit={(event) => void onSubmit(event)}
-        className="mt-4 space-y-4"
+        className="mt-6 space-y-4"
       >
         <div>
           <Label htmlFor="li-dato">¿Cuál es su dato impactante?</Label>

@@ -48,6 +48,7 @@ export async function upsertSponsorFromNotion(
       nombre: fields.nombre,
       paquete: fields.paquete,
       updated_from_notion_at: fields.updated_from_notion_at,
+      archivado_at: null,
     },
     { onConflict: "evento_id,notion_page_id" },
   );

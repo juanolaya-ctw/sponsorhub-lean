@@ -183,6 +183,7 @@ export default async function MetricasPage({
       .from("sponsors")
       .select("id, nombre, paquete")
       .eq("evento_id", evento.id)
+      .is("archivado_at", null)
       .order("nombre"),
     supabase
       .from("catalogo_beneficios")
@@ -231,7 +232,8 @@ export default async function MetricasPage({
           .select(
             "id, sponsor_id, tipo, categoria_beneficio, catalogo_beneficios(cantidad, categoria, beneficio), estados_compromiso(es_estado_final)",
           )
-          .in("sponsor_id", sponsorIds),
+          .in("sponsor_id", sponsorIds)
+          .is("archivado_at", null),
         supabase
           .from("archivos")
           .select("sponsor_id, tipo, created_at")

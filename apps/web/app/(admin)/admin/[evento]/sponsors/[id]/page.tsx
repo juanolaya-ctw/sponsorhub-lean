@@ -5,6 +5,8 @@ import { getEventoBySlug } from "@/lib/admin/eventos";
 import { GOVTECH_EVENT_SLUG } from "@/lib/notion/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  cupoOperadoresStand,
+  esBeneficioStand,
   isBeneficioInsumoCompleto,
   isStoredObject,
   loadPortalBeneficios,
@@ -21,6 +23,10 @@ import {
   type BeneficioCompromisoRow,
 } from "./beneficios-section";
 import { AccesosAdminTable } from "./accesos-admin-table";
+import {
+  PersonalStandAdmin,
+  type StandCupoAdmin,
+} from "./personal-stand-admin";
 import type { FormularioPorSponsor } from "./formulario-link-por-sponsor";
 import {
   CommitmentsTable,
@@ -70,6 +76,7 @@ type AccesoPersonaAdmin = {
   nivel_cargo: string | null;
   cargo: string | null;
   tipo: string;
+  compromiso_id: string | null;
 };
 
 function isRealFile(archivo: ArchivoSponsor): boolean {
@@ -132,9 +139,10 @@ export default async function SponsorDetallePage({
     supabase
       .from("compromisos")
       .select(
-        "id, tipo, tipo_beneficio, categoria_beneficio, acceso_tipo, notion_page_id, fecha_limite, estado_id, sponsors(nombre), catalogo_beneficios(beneficio)",
+        "id, tipo, tipo_beneficio, categoria_beneficio, acceso_tipo, notion_page_id, fecha_limite, estado_id, sponsors(nombre), catalogo_beneficios(beneficio, cantidad)",
       )
       .eq("sponsor_id", sponsor.id)
+      .is("archivado_at", null)
       .order("fecha_limite"),
     supabase
       .from("estados_compromiso")
@@ -149,7 +157,7 @@ export default async function SponsorDetallePage({
     supabase
       .from("accesos_personas")
       .select(
-        "id, nombre, apellido, email, documento_identidad, linkedin_url, rol_ecosistema, numero_celular, pais_residencia, empresa, industria, nivel_cargo, cargo, tipo",
+        "id, nombre, apellido, email, documento_identidad, linkedin_url, rol_ecosistema, numero_celular, pais_residencia, empresa, industria, nivel_cargo, cargo, tipo, compromiso_id",
       )
       .eq("sponsor_id", sponsor.id)
       .order("created_at"),
@@ -210,6 +218,29 @@ export default async function SponsorDetallePage({
   const tiers = Array.from(
     new Set((tiersResult.data ?? []).map((item) => item.tier)),
   );
+
+  const standsCupo: StandCupoAdmin[] = (compromisosResult.data ?? [])
+    .map((row) => {
+      const catalogo = row.catalogo_beneficios as
+        | { beneficio: string; cantidad?: number | null }
+        | { beneficio: string; cantidad?: number | null }[]
+        | null
+        | undefined;
+      const cat = Array.isArray(catalogo) ? catalogo[0] : catalogo;
+      const nombre =
+        cat?.beneficio ??
+        (row.tipo as string) ??
+        "Stand";
+      if (!esBeneficioStand(nombre) && !esBeneficioStand(String(row.tipo ?? ""))) {
+        return null;
+      }
+      return {
+        compromisoId: row.id as string,
+        nombre,
+        cupo: cupoOperadoresStand(nombre, cat?.cantidad ?? null),
+      };
+    })
+    .filter((item): item is StandCupoAdmin => item !== null);
 
   // Más reciente por compromiso; preferir archivo real sobre markers JSON.
   const archivosPorCompromiso = new Map<string, ArchivoPorSponsor>();
@@ -350,6 +381,12 @@ export default async function SponsorDetallePage({
   const beneficiosPortal = await loadPortalBeneficios(supabase, sponsor.id);
   const insumosFaltantes = beneficiosPortal.filter(
     (item) => !isBeneficioInsumoCompleto(item),
+  );
+  const insumoCompletoPorCompromiso = new Map(
+    beneficiosPortal.map((item) => [
+      item.compromisoId,
+      isBeneficioInsumoCompleto(item),
+    ]),
   );
   const totalInsumos = beneficiosPortal.length;
   const completados = totalInsumos - insumosFaltantes.length;
@@ -528,11 +565,26 @@ export default async function SponsorDetallePage({
       <section>
         <h2 className="text-lg font-semibold">Accesos</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Personas registradas por el sponsor. Puedes cambiar el tipo
-          (general/VIP) o eliminar registros.
+          Personas registradas por el sponsor. Puedes filtrar por tipo,
+          cambiar general/VIP o eliminar registros. El personal de stand
+          se gestiona desde el beneficio Stand.
         </p>
         <AccesosAdminTable
           accesos={accesos}
+          sponsorId={sponsor.id}
+          eventoSlug={evento.slug}
+        />
+      </section>
+
+      <section>
+        <h2 className="text-lg font-semibold">Personal de stand</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Operadores inscritos por stand. El cupo sigue el tamaño del
+          beneficio (p. ej. Stand 2x2 = 2 personas).
+        </p>
+        <PersonalStandAdmin
+          stands={standsCupo}
+          personas={accesos}
           sponsorId={sponsor.id}
           eventoSlug={evento.slug}
         />
@@ -550,6 +602,7 @@ export default async function SponsorDetallePage({
           standRevisionPorCompromiso={standRevisionPorCompromiso}
           formulariosPorCompromiso={formulariosPorCompromiso}
           formulariosEventoPorNombre={formulariosEventoPorNombre}
+          insumoCompletoPorCompromiso={insumoCompletoPorCompromiso}
         />
       ) : (
         <section>

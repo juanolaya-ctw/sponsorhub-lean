@@ -62,6 +62,8 @@ export type ArchivoPortal = {
   created_at: string;
 };
 
+export type AccesoTipo = "vip" | "general" | "arl_montaje";
+
 export type AccesoPersona = {
   id: string;
   nombre: string;
@@ -93,8 +95,8 @@ export type BeneficioPortal = {
   beneficio: string;
   categoria: string;
   cantidad: number | null;
-  /** Tipo de acceso efectivo (override admin o inferido del nombre). */
-  accesoTipo: "vip" | "general";
+  /** Tipo de acceso efectivo (override admin, stand → arl_montaje, o inferido). */
+  accesoTipo: AccesoTipo;
   detalleSolicitud: string | null;
   notas: string | null;
   estadoNombre: string | null;
@@ -240,13 +242,50 @@ export function parseCantidadFromNombre(nombre: string): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
+/**
+ * Cupo de operadores del stand: catalogo.cantidad o primer lado de NxM
+ * (Stand 2x2 → 2, Stand 3x2 → 3).
+ */
+export function parseTamanoStandFromNombre(nombre: string): number | null {
+  const trimmed = nombre.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/(\d+)\s*[x×]\s*(\d+)/i);
+  if (!match?.[1]) return null;
+  const value = Number.parseInt(match[1], 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+export function cupoOperadoresStand(
+  nombre: string,
+  cantidadCatalogo?: number | null,
+): number | null {
+  if (cantidadCatalogo != null && cantidadCatalogo > 0) {
+    return cantidadCatalogo;
+  }
+  return parseTamanoStandFromNombre(nombre);
+}
+
+export function labelAccesoTipo(tipo: string): string {
+  if (tipo === "arl_montaje") return "Stand";
+  if (tipo === "vip") return "VIP";
+  if (tipo === "general") return "General";
+  return tipo;
+}
+
 export function resolverTipoAcceso(options: {
   accesoTipo?: string | null;
   beneficioNombre: string;
   categoria?: string | null;
-}): "vip" | "general" {
+}): AccesoTipo {
+  if (options.accesoTipo === "arl_montaje") return "arl_montaje";
   if (options.accesoTipo === "vip" || options.accesoTipo === "general") {
     return options.accesoTipo;
+  }
+  if (
+    esBeneficioStand(options.beneficioNombre) ||
+    (options.categoria != null && esBeneficioStand(options.categoria))
+  ) {
+    return "arl_montaje";
   }
   if (tipoAccesoFromNombre(options.beneficioNombre) === "vip") return "vip";
   if (options.categoria && tipoAccesoFromCategoria(options.categoria) === "vip") {
@@ -525,12 +564,18 @@ function mapCompromiso(
   const categoria =
     catalogo?.categoria ?? row.categoria_beneficio ?? "Otros";
   const tipo = resolverTipoFormulario(catalogo?.categoria, beneficio);
-  const cantidad = resolverCantidadAccesos(catalogo?.cantidad, beneficio);
-  const accesoTipo = resolverTipoAcceso({
-    accesoTipo: row.acceso_tipo,
-    beneficioNombre: beneficio,
-    categoria: catalogo?.categoria ?? row.categoria_beneficio,
-  });
+  const cantidad =
+    tipo === "stand"
+      ? cupoOperadoresStand(beneficio, catalogo?.cantidad)
+      : resolverCantidadAccesos(catalogo?.cantidad, beneficio);
+  const accesoTipo =
+    tipo === "stand"
+      ? ("arl_montaje" as const)
+      : resolverTipoAcceso({
+          accesoTipo: row.acceso_tipo,
+          beneficioNombre: beneficio,
+          categoria: catalogo?.categoria ?? row.categoria_beneficio,
+        });
   const archivosDel = archivos.filter((item) => item.compromiso_id === row.id);
   const personasDel = personas.filter((item) => item.compromiso_id === row.id);
   const formulario =
@@ -639,7 +684,8 @@ export async function loadPortalBeneficios(
         .select(
           "id, tipo, tipo_beneficio, categoria_beneficio, acceso_tipo, catalogo_beneficios(beneficio, categoria, cantidad, detalle_solicitud, notas, orden), estados_compromiso(nombre, color, es_estado_final)",
         )
-        .eq("sponsor_id", sponsorId),
+        .eq("sponsor_id", sponsorId)
+        .is("archivado_at", null),
       supabase
         .from("archivos")
         .select("id, tipo, nombre_archivo, storage_path, compromiso_id, created_at")

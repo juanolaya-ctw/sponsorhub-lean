@@ -15,6 +15,7 @@ import {
   TIPO_NEWSLETTER,
   type NewsletterPayload,
 } from "@/lib/portal/beneficios";
+import { DosDontsTable } from "@/components/portal/dos-donts-table";
 
 async function removeStorageIfOrphan(
   supabase: ReturnType<typeof createClient>,
@@ -32,7 +33,9 @@ async function removeStorageIfOrphan(
 
 const MAX_TITULO = 60;
 const MAX_PALABRAS = 100;
-const IMAGE_SIZE = 1080;
+const IMAGE_WIDTH = 1200;
+const IMAGE_HEIGHT = 675;
+const MAX_IMAGE_BYTES = 20 * 1024;
 
 type ArchivoActual = {
   id: string;
@@ -95,7 +98,9 @@ export function NewsletterForm({
       return;
     }
     if (!hasImage) {
-      setError("Sube una imagen PNG de 1080×1080 px.");
+      setError(
+        `Sube una imagen PNG de ${IMAGE_WIDTH}×${IMAGE_HEIGHT} px (máx. 20 KB).`,
+      );
       return;
     }
 
@@ -106,10 +111,16 @@ export function NewsletterForm({
         setError("La imagen debe ser formato PNG.");
         return;
       }
+      if (file.size > MAX_IMAGE_BYTES) {
+        setError("La imagen no debe superar 20 KB. Comprímela antes de subirla.");
+        return;
+      }
       try {
         const size = await readImageSize(file);
-        if (size.width !== IMAGE_SIZE || size.height !== IMAGE_SIZE) {
-          setError(`La imagen debe medir ${IMAGE_SIZE}×${IMAGE_SIZE} px.`);
+        if (size.width !== IMAGE_WIDTH || size.height !== IMAGE_HEIGHT) {
+          setError(
+            `La imagen debe medir ${IMAGE_WIDTH}×${IMAGE_HEIGHT} px.`,
+          );
           return;
         }
       } catch (err) {
@@ -210,7 +221,8 @@ export function NewsletterForm({
   return (
     <section className="rounded-xl border border-border bg-white p-5">
       <h2 className="font-semibold">Contenido del newsletter</h2>
-      <form onSubmit={(event) => void onSubmit(event)} className="mt-4 space-y-4">
+      <DosDontsTable variante="newsletter" className="mt-4 space-y-4" />
+      <form onSubmit={(event) => void onSubmit(event)} className="mt-6 space-y-4">
         <div>
           <div className="flex items-baseline justify-between gap-3">
             <Label htmlFor="newsletter-titulo">Título</Label>
@@ -249,7 +261,9 @@ export function NewsletterForm({
         </div>
 
         <div>
-          <Label htmlFor="newsletter-imagen">Imagen (1080×1080, PNG)</Label>
+          <Label htmlFor="newsletter-imagen">
+            Imagen ({IMAGE_WIDTH}×{IMAGE_HEIGHT} px, PNG, máx. 20 KB)
+          </Label>
           {archivo?.viewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img

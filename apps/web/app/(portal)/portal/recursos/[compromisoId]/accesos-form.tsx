@@ -1,11 +1,11 @@
-"use client";
+"use client"
 
-import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
-import posthog from "posthog-js";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormEvent, useState } from "react"
+import { useRouter } from "next/navigation"
+import posthog from "posthog-js"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Dialog,
   DialogContent,
@@ -13,7 +13,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/components/ui/dialog"
 import {
   Table,
   TableBody,
@@ -21,9 +21,13 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { createClient } from "@/lib/supabase/client";
-import type { AccesoPersona } from "@/lib/portal/beneficios";
+} from "@/components/ui/table"
+import { createClient } from "@/lib/supabase/client"
+import {
+  labelAccesoTipo,
+  type AccesoPersona,
+  type AccesoTipo,
+} from "@/lib/portal/beneficios"
 
 const CAMPOS = [
   { name: "nombre", label: "Nombre completo", type: "text", required: true },
@@ -36,7 +40,7 @@ const CAMPOS = [
   { name: "empresa", label: "Empresa", type: "text", required: true },
   { name: "industria", label: "Industria", type: "text", required: true },
   { name: "nivel_cargo", label: "Nivel de cargo", type: "text", required: true },
-] as const;
+] as const
 
 export function AccesosForm({
   sponsorId,
@@ -44,56 +48,62 @@ export function AccesosForm({
   accesoTipo,
   cantidad,
   personas,
+  titulo,
 }: {
-  sponsorId: string;
-  compromisoId: string;
-  accesoTipo: "vip" | "general";
-  cantidad: number | null;
-  personas: AccesoPersona[];
+  sponsorId: string
+  compromisoId: string
+  accesoTipo: AccesoTipo
+  cantidad: number | null
+  personas: AccesoPersona[]
+  /** Override del encabezado (p. ej. Personal de stand). */
+  titulo?: string
 }) {
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const limite = cantidad && cantidad > 0 ? cantidad : null;
-  const lleno = limite !== null && personas.length >= limite;
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const limite = cantidad && cantidad > 0 ? cantidad : null
+  const lleno = limite !== null && personas.length >= limite
+  const esStand = accesoTipo === "arl_montaje"
+  const heading = titulo ?? (esStand ? "Personal de stand" : "Personas registradas")
+  const tipoLabel = labelAccesoTipo(accesoTipo)
 
   async function addPersona(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
     const get = (name: (typeof CAMPOS)[number]["name"]) =>
-      String(form.get(name) ?? "").trim();
+      String(form.get(name) ?? "").trim()
     for (const campo of CAMPOS) {
       if (campo.required && !get(campo.name)) {
-        setError(`${campo.label} es obligatorio.`);
-        return;
+        setError(`${campo.label} es obligatorio.`)
+        return
       }
     }
 
-    setPending(true);
-    setError(null);
-    const supabase = createClient();
+    setPending(true)
+    setError(null)
+    const supabase = createClient()
 
     if (limite !== null) {
       const { count, error: countError } = await supabase
         .from("accesos_personas")
         .select("id", { count: "exact", head: true })
         .eq("compromiso_id", compromisoId)
-        .eq("sponsor_id", sponsorId);
+        .eq("sponsor_id", sponsorId)
 
       if (countError) {
-        setError(countError.message);
-        setPending(false);
-        return;
+        setError(countError.message)
+        setPending(false)
+        return
       }
       if ((count ?? 0) >= limite) {
         setError(
           `Ya alcanzaste el límite de ${limite} personas para este beneficio.`,
-        );
-        setPending(false);
-        setOpen(false);
-        router.refresh();
-        return;
+        )
+        setPending(false)
+        setOpen(false)
+        router.refresh()
+        return
       }
     }
 
@@ -111,58 +121,72 @@ export function AccesosForm({
       empresa: get("empresa"),
       industria: get("industria"),
       nivel_cargo: get("nivel_cargo"),
-    });
+    })
 
     if (insertError) {
-      setError(insertError.message);
-      setPending(false);
-      return;
+      setError(insertError.message)
+      setPending(false)
+      return
     }
 
-    posthog.capture("acceso_registrado", { sponsor_id: sponsorId });
-    setPending(false);
-    setOpen(false);
-    router.refresh();
+    posthog.capture("acceso_registrado", {
+      sponsor_id: sponsorId,
+      tipo: accesoTipo,
+    })
+    setPending(false)
+    setOpen(false)
+    router.refresh()
   }
 
   async function removePersona(id: string) {
-    setPending(true);
-    setError(null);
-    const supabase = createClient();
+    setPending(true)
+    setError(null)
+    const supabase = createClient()
     const { error: deleteError } = await supabase
       .from("accesos_personas")
       .delete()
       .eq("id", id)
-      .eq("sponsor_id", sponsorId);
+      .eq("sponsor_id", sponsorId)
     if (deleteError) {
-      setError(deleteError.message);
-      setPending(false);
-      return;
+      setError(deleteError.message)
+      setPending(false)
+      return
     }
-    setPending(false);
-    router.refresh();
+    setPending(false)
+    router.refresh()
   }
 
   return (
     <section className="space-y-4 rounded-xl border border-border bg-white p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-semibold">Personas registradas</h2>
+          <h2 className="font-semibold">{heading}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Tipo de acceso:{" "}
-            <span className="font-medium capitalize">{accesoTipo}</span>
-            {" · "}
-            {limite
-              ? `${personas.length} de ${limite} personas registradas`
-              : `${personas.length} ${personas.length === 1 ? "persona registrada" : "personas registradas"}`}
+            {esStand ? (
+              <>
+                Operadores del stand ·{" "}
+                {limite
+                  ? `${personas.length} de ${limite} personas inscritas`
+                  : `${personas.length} ${personas.length === 1 ? "persona inscrita" : "personas inscritas"}`}
+              </>
+            ) : (
+              <>
+                Tipo de acceso:{" "}
+                <span className="font-medium">{tipoLabel}</span>
+                {" · "}
+                {limite
+                  ? `${personas.length} de ${limite} personas registradas`
+                  : `${personas.length} ${personas.length === 1 ? "persona registrada" : "personas registradas"}`}
+              </>
+            )}
           </p>
         </div>
         <Button
           type="button"
           disabled={lleno || pending}
           onClick={() => {
-            setError(null);
-            setOpen(true);
+            setError(null)
+            setOpen(true)
           }}
         >
           {lleno ? "Límite alcanzado" : "Agregar persona"}
@@ -178,7 +202,9 @@ export function AccesosForm({
 
       {personas.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Aún no has registrado personas para este beneficio.
+          {esStand
+            ? "Aún no has inscrito operadores para este stand."
+            : "Aún no has registrado personas para este beneficio."}
         </p>
       ) : (
         <Table>
@@ -220,10 +246,15 @@ export function AccesosForm({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Agregar persona</DialogTitle>
+            <DialogTitle>
+              {esStand ? "Inscribir operador de stand" : "Agregar persona"}
+            </DialogTitle>
             <DialogDescription>
               Completa los 10 datos que ColombiaTech necesita para acreditar a
-              esta persona. Se registrará como acceso {accesoTipo}.
+              esta persona.
+              {esStand
+                ? " Se registrará como personal de stand."
+                : ` Se registrará como acceso ${tipoLabel}.`}
               {limite ? ` Cupo: ${personas.length}/${limite}.` : ""}
             </DialogDescription>
           </DialogHeader>
@@ -252,5 +283,5 @@ export function AccesosForm({
         </DialogContent>
       </Dialog>
     </section>
-  );
+  )
 }
