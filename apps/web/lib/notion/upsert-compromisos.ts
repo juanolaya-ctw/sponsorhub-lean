@@ -180,15 +180,17 @@ export async function upsertCompromisosFromLabBeneficios(
     }
   }
 
+  // Las funciones internas pierden el narrowing de `pendienteId`: lo fijamos como string.
+  const pendienteEstadoId: string = pendienteId
   const estadoIdCache = new Map<string, string | null>()
-  estadoIdCache.set("Pendiente", pendienteId)
+  estadoIdCache.set("Pendiente", pendienteEstadoId)
 
   async function estadoIdForNotion(
     estadoNotion: string | null,
   ): Promise<string> {
     const hubNombre = mapEstadoNotionToHubNombre(estadoNotion)
     if (estadoIdCache.has(hubNombre)) {
-      return estadoIdCache.get(hubNombre) ?? pendienteId
+      return estadoIdCache.get(hubNombre) ?? pendienteEstadoId
     }
     const resolved = await resolveEstadoIdByNombre(
       supabase,
@@ -196,7 +198,7 @@ export async function upsertCompromisosFromLabBeneficios(
       hubNombre,
     )
     estadoIdCache.set(hubNombre, resolved)
-    return resolved ?? pendienteId
+    return resolved ?? pendienteEstadoId
   }
 
   const sponsorIds = [...new Set(sponsorByNotionId.values())]

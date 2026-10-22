@@ -22,7 +22,10 @@ function AccesoTipoSelectInner({
     accesoTipo,
     beneficioNombre,
   });
-  const [value, setValue] = useState<"vip" | "general">(inferred);
+  const [value, setValue] = useState<"vip" | "general">(
+    // El select solo edita vip/general; arl_montaje (stand) se muestra como general.
+    inferred === "vip" ? "vip" : "general",
+  );
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
