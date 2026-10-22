@@ -796,3 +796,129 @@ export async function loadPortalBeneficio(
   const beneficios = await loadPortalBeneficios(supabase, sponsorId);
   return beneficios.find((item) => item.compromisoId === compromisoId) ?? null;
 }
+
+const PAGE_SIZE = 1000;
+
+/** PostgREST corta en 1000 filas: pagina hasta traer todo. */
+async function fetchAllRows<T>(
+  build: (from: number, to: number) => PromiseLike<{
+    data: unknown[] | null;
+    error: { message: string } | null;
+  }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await build(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const chunk = (data ?? []) as T[];
+    rows.push(...chunk);
+    if (chunk.length < PAGE_SIZE) return rows;
+  }
+}
+
+/**
+ * Versión por lotes de `loadPortalBeneficios` para vistas de admin que
+ * necesitan el estado de muchos sponsors a la vez (4 consultas en total
+ * en vez de 4 por sponsor). No resuelve los links globales de formularios
+ * (no afectan el progreso).
+ */
+export async function loadPortalBeneficiosPorSponsor(
+  supabase: SupabaseClient,
+  sponsorIds: string[],
+): Promise<Map<string, BeneficioPortal[]>> {
+  const result = new Map<string, BeneficioPortal[]>();
+  if (sponsorIds.length === 0) return result;
+
+  const [compromisoRows, archivos, personas] = await Promise.all([
+    fetchAllRows<CompromisoRow & { sponsor_id: string }>((from, to) =>
+      supabase
+        .from("compromisos")
+        .select(
+          "id, sponsor_id, tipo, tipo_beneficio, categoria_beneficio, acceso_tipo, catalogo_beneficios(beneficio, categoria, cantidad, detalle_solicitud, notas, orden), estados_compromiso(nombre, color, es_estado_final)",
+        )
+        .in("sponsor_id", sponsorIds)
+        .is("archivado_at", null)
+        .order("id")
+        .range(from, to),
+    ),
+    fetchAllRows<ArchivoPortal & { sponsor_id: string }>((from, to) =>
+      supabase
+        .from("archivos")
+        .select(
+          "id, sponsor_id, tipo, nombre_archivo, storage_path, compromiso_id, created_at",
+        )
+        .in("sponsor_id", sponsorIds)
+        .in("direccion", ["sponsor_sube", "admin_sube_por_sponsor"])
+        .order("created_at", { ascending: false })
+        .order("id")
+        .range(from, to),
+    ),
+    fetchAllRows<AccesoPersona & { sponsor_id: string }>((from, to) =>
+      supabase
+        .from("accesos_personas")
+        .select("id, sponsor_id, nombre, tipo, compromiso_id")
+        .in("sponsor_id", sponsorIds)
+        .order("id")
+        .range(from, to),
+    ),
+  ]);
+
+  const revisiones = new Map<string, StandRevision>();
+  const compromisoIds = compromisoRows.map((row) => row.id);
+  if (compromisoIds.length > 0) {
+    const rows = await fetchAllRows<{
+      id: string;
+      compromiso_id: string;
+      decision: string;
+      comentario: string | null;
+      created_at: string;
+    }>((from, to) =>
+      supabase
+        .from("stand_revisiones")
+        .select("id, compromiso_id, decision, comentario, created_at")
+        .in("compromiso_id", compromisoIds)
+        .order("created_at", { ascending: false })
+        .order("id")
+        .range(from, to),
+    ).catch((error: Error) => {
+      // 42P01 (tabla inexistente) llega como mensaje; se ignora igual que en el portal.
+      if (/stand_revisiones/.test(error.message)) return [];
+      throw error;
+    });
+    for (const row of rows) {
+      if (revisiones.has(row.compromiso_id)) continue;
+      if (row.decision !== "aprobado" && row.decision !== "cambios_solicitados") {
+        continue;
+      }
+      revisiones.set(row.compromiso_id, {
+        id: row.id,
+        decision: row.decision,
+        comentario: row.comentario,
+        created_at: row.created_at,
+      });
+    }
+  }
+
+  for (const sponsorId of sponsorIds) {
+    const archivosDelSponsor = archivos.filter((a) => a.sponsor_id === sponsorId);
+    const personasDelSponsor = personas.filter((p) => p.sponsor_id === sponsorId);
+    const mapped = attachLogosCompartidos(
+      compromisoRows
+        .filter((row) => row.sponsor_id === sponsorId)
+        .map((row) =>
+          mapCompromiso(
+            row,
+            archivosDelSponsor,
+            personasDelSponsor,
+            revisiones.get(row.id) ?? null,
+          ),
+        ),
+      archivosDelSponsor,
+    );
+    result.set(
+      sponsorId,
+      mapped.sort((a, b) => a.categoria.localeCompare(b.categoria, "es")),
+    );
+  }
+  return result;
+}
