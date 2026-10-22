@@ -2,10 +2,16 @@ import Link from "next/link";
 import { requireSponsor } from "@/lib/auth/require-admin";
 import { getSponsorContext } from "@/lib/portal/sponsor";
 import {
+  ARCHIVOS_BUCKET,
+  isImageName,
+  isLogoTipo,
+  isStoredObject,
   loadPortalBeneficios,
   requiereAccion,
   resumenProgreso,
 } from "@/lib/portal/beneficios";
+import { PIEZAS_BUCKET } from "@/lib/portal/soy-sponsor-pieza";
+import { SoySponsorPieza } from "@/components/portal/SoySponsorPieza";
 import { Button } from "@/components/ui/button";
 import { WelcomeOnboardingDialog } from "./welcome-onboarding-dialog";
 import { RecursosDisponibles } from "./recursos-disponibles";
@@ -121,6 +127,41 @@ export default async function SponsorDashboardPage() {
   }
 
   const progreso = resumenProgreso(beneficios);
+
+  const [logosResult, piezaRowResult] = await Promise.all([
+    supabase
+      .from("archivos")
+      .select("tipo, nombre_archivo, storage_path, created_at")
+      .eq("sponsor_id", sponsor.sponsorId)
+      .in("direccion", ["sponsor_sube", "admin_sube_por_sponsor"])
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("sponsors")
+      .select("pieza_path, pieza_generada_at")
+      .eq("id", sponsor.sponsorId)
+      .maybeSingle(),
+  ]);
+  const logosSubidos = (logosResult.data ?? []).filter(
+    (a) => isLogoTipo(a.tipo as string) && isStoredObject(a.storage_path as string),
+  );
+  const logoArchivo = logosSubidos.find((a) =>
+    isImageName(a.nombre_archivo as string),
+  );
+  // Subió logo, pero en un formato que Canvas no puede dibujar (.ai, .pdf, .eps…).
+  const logoNoSoportado = logoArchivo
+    ? null
+    : ((logosSubidos[0]?.nombre_archivo as string | undefined) ?? null);
+  const piezaPath = (piezaRowResult.data?.pieza_path as string | null) ?? null;
+  const [logoSigned, piezaSigned] = await Promise.all([
+    logoArchivo
+      ? supabase.storage
+          .from(ARCHIVOS_BUCKET)
+          .createSignedUrl(logoArchivo.storage_path as string, 3600)
+      : null,
+    piezaPath
+      ? supabase.storage.from(PIEZAS_BUCKET).createSignedUrl(piezaPath, 3600)
+      : null,
+  ]);
   const pendientes = beneficios.filter(
     (item) => requiereAccion(item.tipo) && !item.progreso.completed,
   );
@@ -198,6 +239,19 @@ export default async function SponsorDashboardPage() {
           {progreso.completados} de {progreso.total} beneficios completados
         </p>
       </section>
+
+      <SoySponsorPieza
+        sponsor={{
+          id: sponsor.sponsorId,
+          nombre: sponsor.sponsorNombre,
+          logoUrl: logoSigned?.data?.signedUrl ?? null,
+          logoNoSoportado,
+          logoSubidoAt: (logoArchivo?.created_at as string | undefined) ?? null,
+          piezaUrl: piezaSigned?.data?.signedUrl ?? null,
+          piezaGeneradaAt:
+            (piezaRowResult.data?.pieza_generada_at as string | null) ?? null,
+        }}
+      />
 
       <RecursosDisponibles archivos={ctResult.data ?? []} />
 

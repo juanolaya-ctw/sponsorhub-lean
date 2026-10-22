@@ -62,6 +62,21 @@ export default async function BeneficioDetallePage({
       (item) => isLogoTipo(item.tipo) && isStoredObject(item.storage_path),
     ) ?? null;
 
+  const logosAdicionales = archivosConUrl
+    .filter(
+      (item) =>
+        isLogoTipo(item.tipo) &&
+        isStoredObject(item.storage_path) &&
+        item.id !== logoArchivo?.id,
+    )
+    .map((item) => ({
+      id: item.id,
+      nombre: item.nombre_archivo,
+      storagePath: item.storage_path,
+      viewUrl: item.viewUrl,
+      isImage: isImageName(item.nombre_archivo),
+    }));
+
   let logoCompartido: {
     id: string;
     nombre: string;
@@ -241,6 +256,7 @@ export default async function BeneficioDetallePage({
               : null
           }
           logoCompartido={logoCompartido}
+          adicionales={logosAdicionales}
         />
       ) : null}
 

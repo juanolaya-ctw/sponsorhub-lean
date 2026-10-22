@@ -60,35 +60,37 @@ export function BrandingForm({
   compromisoId,
   archivo,
   logoCompartido,
+  adicionales,
 }: {
   sponsorId: string;
   userId: string;
   compromisoId: string;
   archivo: ArchivoActual | null;
   logoCompartido: ArchivoActual | null;
+  /** Otros archivos de logo del beneficio (p. ej. el PNG junto al .ai). */
+  adicionales: ArchivoActual[];
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const soloAnadirRef = useRef(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function upload(file: File) {
-    setPending(true);
-    setError(null);
+  function abrirSelector(soloAnadir: boolean) {
+    soloAnadirRef.current = soloAnadir;
+    inputRef.current?.click();
+  }
+
+  async function uploadOne(file: File, replace: ArchivoActual | null) {
     const supabase = createClient();
     const path = `${sponsorId}/${crypto.randomUUID()}-${safeFilename(file.name)}`;
     const { error: uploadError } = await supabase.storage
       .from(ARCHIVOS_BUCKET)
       .upload(path, file, { contentType: file.type || undefined, upsert: false });
+    if (uploadError) return uploadError.message;
 
-    if (uploadError) {
-      setError(uploadError.message);
-      setPending(false);
-      return;
-    }
-
-    if (archivo) {
-      const previousPath = archivo.storagePath;
+    if (replace) {
+      const previousPath = replace.storagePath;
       const { error: updateError } = await supabase
         .from("archivos")
         .update({
@@ -96,34 +98,43 @@ export function BrandingForm({
           storage_path: path,
           tipo: TIPO_LOGO,
         })
-        .eq("id", archivo.id)
+        .eq("id", replace.id)
         .eq("sponsor_id", sponsorId);
-
       if (updateError) {
         await supabase.storage.from(ARCHIVOS_BUCKET).remove([path]);
-        setError(updateError.message);
-        setPending(false);
-        return;
+        return updateError.message;
       }
       await removeStorageIfOrphan(supabase, previousPath);
-    } else {
-      const { error: insertError } = await supabase.from("archivos").insert({
-        sponsor_id: sponsorId,
-        direccion: "sponsor_sube",
-        tipo: TIPO_LOGO,
-        nombre_archivo: file.name,
-        storage_path: path,
-        subido_por: userId,
-        compromiso_id: compromisoId,
-      });
-      if (insertError) {
-        await supabase.storage.from(ARCHIVOS_BUCKET).remove([path]);
-        setError(insertError.message);
-        setPending(false);
-        return;
-      }
+      return null;
     }
 
+    const { error: insertError } = await supabase.from("archivos").insert({
+      sponsor_id: sponsorId,
+      direccion: "sponsor_sube",
+      tipo: TIPO_LOGO,
+      nombre_archivo: file.name,
+      storage_path: path,
+      subido_por: userId,
+      compromiso_id: compromisoId,
+    });
+    if (insertError) {
+      await supabase.storage.from(ARCHIVOS_BUCKET).remove([path]);
+      return insertError.message;
+    }
+    return null;
+  }
+
+  /** El primer archivo reemplaza al actual (si hay y no es "añadir"); los demás se suman. */
+  async function upload(files: File[], soloAnadir: boolean) {
+    setPending(true);
+    setError(null);
+    for (const [index, file] of files.entries()) {
+      const message = await uploadOne(file, index === 0 && !soloAnadir ? archivo : null);
+      if (message) {
+        setError(`${file.name}: ${message}`);
+        break;
+      }
+    }
     setPending(false);
     router.refresh();
   }
@@ -151,8 +162,7 @@ export function BrandingForm({
     router.refresh();
   }
 
-  async function remove() {
-    const target = archivo ?? logoCompartido;
+  async function remove(target: ArchivoActual | null = archivo ?? logoCompartido) {
     if (!target) return;
     setPending(true);
     setError(null);
@@ -184,6 +194,11 @@ export function BrandingForm({
               ? "Ya subiste un logo en otro beneficio. Puedes reutilizarlo o cargar uno distinto."
               : "Sube el archivo en .ai o una imagen PNG de alta resolución."}
           </p>
+          <p className="mt-2 rounded-lg bg-[#42B3F3]/10 px-3 py-2 text-sm">
+            Ojalá subas el editable (<strong>.ai</strong>) y también un{" "}
+            <strong>.png</strong>. Puedes seleccionar varios archivos a la
+            vez. El PNG se usa para armar tu pieza «Soy Sponsor».
+          </p>
         </div>
         {archivo || mostrarCompartido ? <CargadoBadge /> : null}
       </div>
@@ -192,11 +207,12 @@ export function BrandingForm({
         ref={inputRef}
         type="file"
         accept=".ai,.png,.svg,.jpg,.jpeg,.eps"
+        multiple
         className="hidden"
         onChange={(event) => {
-          const file = event.target.files?.[0];
+          const files = Array.from(event.target.files ?? []);
           event.target.value = "";
-          if (file) void upload(file);
+          if (files.length > 0) void upload(files, soloAnadirRef.current);
         }}
       />
 
@@ -219,7 +235,7 @@ export function BrandingForm({
               variant="outline"
               size="sm"
               disabled={pending}
-              onClick={() => inputRef.current?.click()}
+              onClick={() => abrirSelector(false)}
             >
               {pending ? "Subiendo…" : "Reemplazar"}
             </Button>
@@ -252,7 +268,7 @@ export function BrandingForm({
               type="button"
               variant="outline"
               disabled={pending}
-              onClick={() => inputRef.current?.click()}
+              onClick={() => abrirSelector(false)}
             >
               Subir uno diferente
             </Button>
@@ -271,12 +287,60 @@ export function BrandingForm({
           <Button
             type="button"
             disabled={pending}
-            onClick={() => inputRef.current?.click()}
+            onClick={() => abrirSelector(false)}
           >
             {pending ? "Subiendo…" : "Subir archivo"}
           </Button>
         </div>
       )}
+
+      {adicionales.length > 0 ? (
+        <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
+          {adicionales.map((item) => (
+            <li
+              key={item.id}
+              className="flex items-center justify-between gap-3 px-3 py-2"
+            >
+              <span className="flex min-w-0 items-center gap-2 text-sm">
+                <FileIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="truncate">{item.nombre}</span>
+              </span>
+              <span className="flex shrink-0 gap-2">
+                {item.viewUrl ? (
+                  <Button asChild variant="outline" size="sm">
+                    <a href={item.viewUrl} target="_blank" rel="noreferrer">
+                      Ver
+                    </a>
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => void remove(item)}
+                >
+                  Eliminar
+                </Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {archivo || mostrarCompartido ? (
+        <div className="mt-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={pending}
+            onClick={() => abrirSelector(true)}
+          >
+            {pending ? "Subiendo…" : "Añadir más archivos"}
+          </Button>
+        </div>
+      ) : null}
 
       {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
     </section>
