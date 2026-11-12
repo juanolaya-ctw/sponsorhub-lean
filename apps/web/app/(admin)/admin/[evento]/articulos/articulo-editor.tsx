@@ -361,8 +361,8 @@ export function ArticuloEditor({
                   alt={sponsor.nombre}
                   onError={() => setSponsorLogoBroken(true)}
                   style={{
-                    width: 180,
-                    height: 66,
+                    width: 160,
+                    height: 48,
                     objectFit: "contain",
                     objectPosition: "left top",
                     // Solo invert si pedimos blanco pero no hay asset blanco real.
@@ -396,9 +396,10 @@ export function ArticuloEditor({
                   setEventLogoSrc(eventLogoFallback(eventLogoVariant));
                 }}
                 style={{
-                  width: 140,
-                  height: 42,
+                  width: 160,
+                  height: 48,
                   objectFit: "contain",
+                  objectPosition: "right top",
                 }}
               />
             </div>
