@@ -26,9 +26,11 @@ type SponsorRow = {
   logo_url: string | null;
 };
 
+/** Solo tipos de branding reales. No usar nombre_archivo: una imagen RRSS
+ *  con "logo" en el filename (p.ej. GotoCloud_Logo_Background.png) no es logo. */
 function isLogoArchivo(row: ArchivoInsumoRow): boolean {
-  if (isLogoTipo(row.tipo)) return true;
-  return /logo/i.test(row.tipo) || /logo/i.test(row.nombre_archivo);
+  if (isLinkedInInsumoTipo(row.tipo)) return false;
+  return isLogoTipo(row.tipo) || /logo/i.test(row.tipo);
 }
 
 async function signedUrl(
@@ -176,8 +178,14 @@ export default async function ArticulosPage({
 
     const logoBlanco =
       staticLogos?.blanco ?? logoFromStorage ?? notionLogo ?? null;
+    // Preferir estático blanco antes que Storage: evita pintar un falso logo
+    // de Storage cuando solo existe variante blanca en public/.
     const logoColor =
-      staticLogos?.color ?? logoFromStorage ?? staticLogos?.blanco ?? notionLogo ?? null;
+      staticLogos?.color ??
+      staticLogos?.blanco ??
+      logoFromStorage ??
+      notionLogo ??
+      null;
     const resolvedLogo =
       logoFromStorage ?? staticLogos?.preview ?? notionLogo ?? null;
 
