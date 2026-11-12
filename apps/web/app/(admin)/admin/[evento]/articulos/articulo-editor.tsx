@@ -31,6 +31,21 @@ import { CropModal } from "./crop-modal";
 type LogoVariant = "blanco" | "color";
 type EventLogoVariant = "blanco" | "contraste";
 
+/** Tamaño base del slot de logos en el preview 540×675 (export ×2). */
+const LOGO_BASE_WIDTH = 160;
+const LOGO_BASE_HEIGHT = 48;
+const LOGO_SCALE_MIN = 70;
+const LOGO_SCALE_MAX = 200;
+const LOGO_SCALE_DEFAULT = 100;
+
+const logoBoxSize = (scalePercent: number) => {
+  const scale = scalePercent / 100;
+  return {
+    width: Math.round(LOGO_BASE_WIDTH * scale),
+    height: Math.round(LOGO_BASE_HEIGHT * scale),
+  };
+};
+
 export function ArticuloEditor({
   eventoId,
   eventoSlug,
@@ -61,9 +76,14 @@ export function ArticuloEditor({
     useState<LogoVariant>("color");
   const [eventLogoVariant, setEventLogoVariant] =
     useState<EventLogoVariant>("blanco");
+  const [sponsorLogoScale, setSponsorLogoScale] =
+    useState(LOGO_SCALE_DEFAULT);
+  const [eventLogoScale, setEventLogoScale] = useState(LOGO_SCALE_DEFAULT);
   const [eventLogoSrc, setEventLogoSrc] = useState(
     () => eventLogoPaths(eventoSlug).blanco,
   );
+  const sponsorLogoBox = logoBoxSize(sponsorLogoScale);
+  const eventLogoBox = logoBoxSize(eventLogoScale);
 
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(
     sponsor.image_source_url ??
@@ -361,8 +381,8 @@ export function ArticuloEditor({
                   alt={sponsor.nombre}
                   onError={() => setSponsorLogoBroken(true)}
                   style={{
-                    width: 160,
-                    height: 48,
+                    width: sponsorLogoBox.width,
+                    height: sponsorLogoBox.height,
                     objectFit: "contain",
                     objectPosition: "left top",
                     // Solo invert si pedimos blanco pero no hay asset blanco real.
@@ -396,8 +416,8 @@ export function ArticuloEditor({
                   setEventLogoSrc(eventLogoFallback(eventLogoVariant));
                 }}
                 style={{
-                  width: 160,
-                  height: 48,
+                  width: eventLogoBox.width,
+                  height: eventLogoBox.height,
                   objectFit: "contain",
                   objectPosition: "right top",
                 }}
@@ -493,6 +513,26 @@ export function ArticuloEditor({
                   Color
                 </Button>
               </div>
+              <Label
+                htmlFor="sponsor-logo-scale"
+                className="mt-3 block text-xs text-muted-foreground"
+              >
+                Tamaño {sponsorLogoScale}%
+              </Label>
+              <input
+                id="sponsor-logo-scale"
+                type="range"
+                min={LOGO_SCALE_MIN}
+                max={LOGO_SCALE_MAX}
+                step={5}
+                value={sponsorLogoScale}
+                onChange={(e) => setSponsorLogoScale(Number(e.target.value))}
+                aria-label="Tamaño del logo del sponsor"
+                aria-valuemin={LOGO_SCALE_MIN}
+                aria-valuemax={LOGO_SCALE_MAX}
+                aria-valuenow={sponsorLogoScale}
+                className="mt-1 w-full accent-foreground"
+              />
             </div>
             <div>
               <Label className="text-xs text-muted-foreground">
@@ -520,6 +560,26 @@ export function ArticuloEditor({
                   Contraste
                 </Button>
               </div>
+              <Label
+                htmlFor="event-logo-scale"
+                className="mt-3 block text-xs text-muted-foreground"
+              >
+                Tamaño {eventLogoScale}%
+              </Label>
+              <input
+                id="event-logo-scale"
+                type="range"
+                min={LOGO_SCALE_MIN}
+                max={LOGO_SCALE_MAX}
+                step={5}
+                value={eventLogoScale}
+                onChange={(e) => setEventLogoScale(Number(e.target.value))}
+                aria-label="Tamaño del logo del evento"
+                aria-valuemin={LOGO_SCALE_MIN}
+                aria-valuemax={LOGO_SCALE_MAX}
+                aria-valuenow={eventLogoScale}
+                className="mt-1 w-full accent-foreground"
+              />
             </div>
           </div>
 
