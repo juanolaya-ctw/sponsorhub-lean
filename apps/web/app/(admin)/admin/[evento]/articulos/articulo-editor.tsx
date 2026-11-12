@@ -31,20 +31,21 @@ import { CropModal } from "./crop-modal";
 type LogoVariant = "blanco" | "color";
 type EventLogoVariant = "blanco" | "contraste";
 
-/** Tamaño base del slot de logos en el preview 540×675 (export ×2). */
+/** Tamaño base del slot de logos en el preview 540×675 (export ×2).
+ *  Ambos logos comparten una franja con el mismo centro vertical; el
+ *  scale crece desde ese centro y el offset Y permite afinar por asset. */
 const LOGO_BASE_WIDTH = 160;
 const LOGO_BASE_HEIGHT = 48;
 const LOGO_SCALE_MIN = 70;
 const LOGO_SCALE_MAX = 200;
 const LOGO_SCALE_DEFAULT = 100;
-
-const logoBoxSize = (scalePercent: number) => {
-  const scale = scalePercent / 100;
-  return {
-    width: Math.round(LOGO_BASE_WIDTH * scale),
-    height: Math.round(LOGO_BASE_HEIGHT * scale),
-  };
-};
+const LOGO_OFFSET_MIN = -40;
+const LOGO_OFFSET_MAX = 40;
+const LOGO_ROW_TOP = 50;
+const LOGO_ROW_SIDE = 32;
+const LOGO_ROW_HEIGHT = Math.ceil(
+  LOGO_BASE_HEIGHT * (LOGO_SCALE_MAX / 100),
+);
 
 export function ArticuloEditor({
   eventoId,
@@ -79,11 +80,11 @@ export function ArticuloEditor({
   const [sponsorLogoScale, setSponsorLogoScale] =
     useState(LOGO_SCALE_DEFAULT);
   const [eventLogoScale, setEventLogoScale] = useState(LOGO_SCALE_DEFAULT);
+  const [sponsorLogoOffsetY, setSponsorLogoOffsetY] = useState(0);
+  const [eventLogoOffsetY, setEventLogoOffsetY] = useState(0);
   const [eventLogoSrc, setEventLogoSrc] = useState(
     () => eventLogoPaths(eventoSlug).blanco,
   );
-  const sponsorLogoBox = logoBoxSize(sponsorLogoScale);
-  const eventLogoBox = logoBoxSize(eventLogoScale);
 
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(
     sponsor.image_source_url ??
@@ -365,13 +366,10 @@ export function ArticuloEditor({
             <div
               style={{
                 position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                padding: "50px 32px 0",
+                top: LOGO_ROW_TOP,
+                left: LOGO_ROW_SIDE,
+                right: LOGO_ROW_SIDE,
+                height: LOGO_ROW_HEIGHT,
               }}
             >
               {sponsorLogoUrl && !sponsorLogoBroken ? (
@@ -381,10 +379,16 @@ export function ArticuloEditor({
                   alt={sponsor.nombre}
                   onError={() => setSponsorLogoBroken(true)}
                   style={{
-                    width: sponsorLogoBox.width,
-                    height: sponsorLogoBox.height,
+                    position: "absolute",
+                    left: 0,
+                    top: `calc(50% + ${sponsorLogoOffsetY}px)`,
+                    display: "block",
+                    width: LOGO_BASE_WIDTH,
+                    height: LOGO_BASE_HEIGHT,
                     objectFit: "contain",
-                    objectPosition: "left top",
+                    objectPosition: "left center",
+                    transform: `translateY(-50%) scale(${sponsorLogoScale / 100})`,
+                    transformOrigin: "center left",
                     // Solo invert si pedimos blanco pero no hay asset blanco real.
                     filter:
                       sponsorLogoVariant === "blanco" &&
@@ -395,7 +399,16 @@ export function ArticuloEditor({
                   }}
                 />
               ) : (
-                <span style={{ color: "#f3f4f6", fontSize: 12 }}>
+                <span
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "#f3f4f6",
+                    fontSize: 12,
+                  }}
+                >
                   {sponsor.nombre}
                 </span>
               )}
@@ -416,10 +429,16 @@ export function ArticuloEditor({
                   setEventLogoSrc(eventLogoFallback(eventLogoVariant));
                 }}
                 style={{
-                  width: eventLogoBox.width,
-                  height: eventLogoBox.height,
+                  position: "absolute",
+                  right: 0,
+                  top: `calc(50% + ${eventLogoOffsetY}px)`,
+                  display: "block",
+                  width: LOGO_BASE_WIDTH,
+                  height: LOGO_BASE_HEIGHT,
                   objectFit: "contain",
-                  objectPosition: "right top",
+                  objectPosition: "right center",
+                  transform: `translateY(-50%) scale(${eventLogoScale / 100})`,
+                  transformOrigin: "center right",
                 }}
               />
             </div>
@@ -533,6 +552,28 @@ export function ArticuloEditor({
                 aria-valuenow={sponsorLogoScale}
                 className="mt-1 w-full accent-foreground"
               />
+              <Label
+                htmlFor="sponsor-logo-offset"
+                className="mt-2 block text-xs text-muted-foreground"
+              >
+                Posición vertical {sponsorLogoOffsetY}px
+              </Label>
+              <input
+                id="sponsor-logo-offset"
+                type="range"
+                min={LOGO_OFFSET_MIN}
+                max={LOGO_OFFSET_MAX}
+                step={1}
+                value={sponsorLogoOffsetY}
+                onChange={(e) =>
+                  setSponsorLogoOffsetY(Number(e.target.value))
+                }
+                aria-label="Posición vertical del logo del sponsor"
+                aria-valuemin={LOGO_OFFSET_MIN}
+                aria-valuemax={LOGO_OFFSET_MAX}
+                aria-valuenow={sponsorLogoOffsetY}
+                className="mt-1 w-full accent-foreground"
+              />
             </div>
             <div>
               <Label className="text-xs text-muted-foreground">
@@ -578,6 +619,26 @@ export function ArticuloEditor({
                 aria-valuemin={LOGO_SCALE_MIN}
                 aria-valuemax={LOGO_SCALE_MAX}
                 aria-valuenow={eventLogoScale}
+                className="mt-1 w-full accent-foreground"
+              />
+              <Label
+                htmlFor="event-logo-offset"
+                className="mt-2 block text-xs text-muted-foreground"
+              >
+                Posición vertical {eventLogoOffsetY}px
+              </Label>
+              <input
+                id="event-logo-offset"
+                type="range"
+                min={LOGO_OFFSET_MIN}
+                max={LOGO_OFFSET_MAX}
+                step={1}
+                value={eventLogoOffsetY}
+                onChange={(e) => setEventLogoOffsetY(Number(e.target.value))}
+                aria-label="Posición vertical del logo del evento"
+                aria-valuemin={LOGO_OFFSET_MIN}
+                aria-valuemax={LOGO_OFFSET_MAX}
+                aria-valuenow={eventLogoOffsetY}
                 className="mt-1 w-full accent-foreground"
               />
             </div>
