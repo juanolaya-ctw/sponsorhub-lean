@@ -361,9 +361,10 @@ export function ArticuloEditor({
                   alt={sponsor.nombre}
                   onError={() => setSponsorLogoBroken(true)}
                   style={{
-                    width: 104.5,
-                    height: 38.67,
+                    width: 180,
+                    height: 66,
                     objectFit: "contain",
+                    objectPosition: "left top",
                     // Solo invert si pedimos blanco pero no hay asset blanco real.
                     filter:
                       sponsorLogoVariant === "blanco" &&
