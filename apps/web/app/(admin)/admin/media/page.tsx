@@ -1,90 +1,89 @@
-import { requireAdmin } from "@/lib/auth/require-admin";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { ClientesCrm, type ClienteRow } from "./clientes-crm";
+import { requireAdmin } from "@/lib/auth/require-admin"
+import { createAdminClient } from "@/lib/supabase/admin"
+import { summarizeInversion } from "@/lib/media/acuerdo"
+import { ClientesCrm, type ClienteRow } from "./clientes-crm"
 
 export default async function MediaCrmPage() {
-  await requireAdmin();
-  const admin = createAdminClient();
+  await requireAdmin()
+  const admin = createAdminClient()
 
   const { data: clientesData, error: clientesError } = await admin
     .from("media_clientes")
     .select("id, nombre, empresa, email_contacto, activo")
-    .order("nombre");
+    .order("nombre")
 
-  if (clientesError) throw new Error(clientesError.message);
+  if (clientesError) throw new Error(clientesError.message)
 
-  const clienteIds = (clientesData ?? []).map((c) => c.id as string);
+  const clienteIds = (clientesData ?? []).map((c) => c.id as string)
 
   const [cyclesResult, planesResult] = await Promise.all([
     clienteIds.length > 0
       ? admin
           .from("media_billing_cycles")
           .select(
-            "id, cliente_id, plan_id, periodo, creditos_asignados, creditos_extra, creditos_rollover",
+            "id, cliente_id, plan_id, periodo, creditos_asignados, creditos_extra, creditos_rollover, monto_contratado_usd, fecha_inicio, fecha_fin",
           )
           .in("cliente_id", clienteIds)
           .order("periodo", { ascending: false })
       : { data: [], error: null },
-    admin
-      .from("media_planes")
-      .select("id, nombre")
-      .eq("activo", true),
-  ]);
+    admin.from("media_planes").select("id, nombre").eq("activo", true),
+  ])
 
-  if (cyclesResult.error) throw new Error(cyclesResult.error.message);
-  if (planesResult.error) throw new Error(planesResult.error.message);
+  if (cyclesResult.error) throw new Error(cyclesResult.error.message)
+  if (planesResult.error) throw new Error(planesResult.error.message)
 
   const planMap = new Map(
     (planesResult.data ?? []).map((p) => [p.id as string, p.nombre as string]),
-  );
+  )
 
-  // Latest cycle per cliente + inversión (suma créditos asignados del deal)
-  const latestByCliente = new Map<string, (typeof cyclesResult.data)[number]>();
-  const inversionByCliente = new Map<string, number>();
+  const latestByCliente = new Map<string, (typeof cyclesResult.data)[number]>()
+  const montosByCliente = new Map<string, Array<number | null>>()
   for (const cycle of cyclesResult.data ?? []) {
-    const cid = cycle.cliente_id as string;
-    if (!latestByCliente.has(cid)) latestByCliente.set(cid, cycle);
-    inversionByCliente.set(
-      cid,
-      (inversionByCliente.get(cid) ?? 0) +
-        ((cycle.creditos_asignados as number) || 0),
-    );
+    const cid = cycle.cliente_id as string
+    if (!latestByCliente.has(cid)) latestByCliente.set(cid, cycle)
+    const monto =
+      cycle.monto_contratado_usd === null ||
+      cycle.monto_contratado_usd === undefined
+        ? null
+        : Number(cycle.monto_contratado_usd)
+    const list = montosByCliente.get(cid) ?? []
+    list.push(monto)
+    montosByCliente.set(cid, list)
   }
 
-  // Fetch used credits for latest cycles
   const latestCycleIds = Array.from(latestByCliente.values()).map(
     (c) => c.id as string,
-  );
+  )
   const assetsResult =
     latestCycleIds.length > 0
       ? await admin
           .from("media_assets_ejecutados")
           .select("billing_cycle_id, costo_creditos, estado")
           .in("billing_cycle_id", latestCycleIds)
-      : { data: [], error: null };
+      : { data: [], error: null }
 
-  if (assetsResult.error) throw new Error(assetsResult.error.message);
+  if (assetsResult.error) throw new Error(assetsResult.error.message)
 
-  const usadosByCiclo = new Map<string, number>();
+  const usadosByCiclo = new Map<string, number>()
   for (const a of assetsResult.data ?? []) {
-    if (a.estado === "cancelado") continue;
-    const cid = a.billing_cycle_id as string;
+    if (a.estado === "cancelado") continue
+    const cid = a.billing_cycle_id as string
     usadosByCiclo.set(
       cid,
       (usadosByCiclo.get(cid) ?? 0) + (Number(a.costo_creditos) || 0),
-    );
+    )
   }
 
   const clientes: ClienteRow[] = (clientesData ?? []).map((c) => {
-    const cid = c.id as string;
-    const cycle = latestByCliente.get(cid) ?? null;
-    let creditosDisponibles: number | null = null;
+    const cid = c.id as string
+    const cycle = latestByCliente.get(cid) ?? null
+    let creditosDisponibles: number | null = null
     if (cycle) {
-      const asignados = (cycle.creditos_asignados as number) || 0;
-      const extra = (cycle.creditos_extra as number | null) ?? 0;
-      const rollover = (cycle.creditos_rollover as number) || 0;
-      const usados = usadosByCiclo.get(cycle.id as string) ?? 0;
-      creditosDisponibles = asignados + extra + rollover - usados;
+      const asignados = (cycle.creditos_asignados as number) || 0
+      const extra = (cycle.creditos_extra as number | null) ?? 0
+      const rollover = (cycle.creditos_rollover as number) || 0
+      const usados = usadosByCiclo.get(cycle.id as string) ?? 0
+      creditosDisponibles = asignados + extra + rollover - usados
     }
     return {
       id: cid,
@@ -95,9 +94,13 @@ export default async function MediaCrmPage() {
       planNombre: cycle ? (planMap.get(cycle.plan_id as string) ?? null) : null,
       creditosDisponibles,
       periodo: cycle ? (cycle.periodo as string) : null,
-      inversionUsd: inversionByCliente.get(cid) ?? 0,
-    };
-  });
+      fechaInicio: cycle
+        ? ((cycle.fecha_inicio as string | null) ?? null)
+        : null,
+      fechaFin: cycle ? ((cycle.fecha_fin as string | null) ?? null) : null,
+      inversionUsd: summarizeInversion(montosByCliente.get(cid) ?? []).total ?? 0,
+    }
+  })
 
   return (
     <div>
@@ -112,5 +115,5 @@ export default async function MediaCrmPage() {
       </div>
       <ClientesCrm clientes={clientes} />
     </div>
-  );
+  )
 }

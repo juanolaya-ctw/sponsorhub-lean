@@ -3,9 +3,25 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  hasCicloOwner,
+  isCierreMensualCompatible,
+  snapshotTarifaCredito,
+  validateAcuerdoCampos,
+  validateEdicionCreditos,
+} from "@/lib/media/acuerdo";
 
 export type MediaActionState = { error: string | null; success?: boolean };
 export type MediaActionStateWithId = MediaActionState & { clienteId?: string };
+
+export type AcuerdoMediaInput = {
+  planId: string;
+  creditosAsignados: number;
+  /** null = histórico sin registrar (solo edición; activación exige valor). */
+  montoContratadoUsd: number | null;
+  fechaInicio: string | null;
+  fechaFin: string | null;
+};
 
 type AssetEstado =
   | "pendiente_insumos"
@@ -22,6 +38,25 @@ function revalidateMedia(clienteId?: string) {
   revalidatePath("/admin/media");
   if (clienteId) revalidatePath(`/admin/media/${clienteId}`);
   revalidatePath("/portal/media");
+  revalidatePath("/portal/dashboard");
+}
+
+async function sumCreditosConsumidos(
+  admin: ReturnType<typeof createAdminClient>,
+  billingCycleId: string,
+): Promise<{ total: number; error: string | null }> {
+  const { data, error } = await admin
+    .from("media_assets_ejecutados")
+    .select("costo_creditos, estado")
+    .eq("billing_cycle_id", billingCycleId);
+
+  if (error) return { total: 0, error: error.message };
+
+  const total = (data ?? [])
+    .filter((a) => a.estado !== "cancelado")
+    .reduce((s, a) => s + (Number(a.costo_creditos) || 0), 0);
+
+  return { total, error: null };
 }
 
 // ── Clientes ────────────────────────────────────────────────────────────────
@@ -131,17 +166,32 @@ export async function eliminarClienteMedia(
 
 export async function activarMediaCliente(
   clienteId: string,
-  planId: string,
-  creditosAsignados?: number,
+  acuerdo: AcuerdoMediaInput,
 ): Promise<MediaActionState> {
   await requireAdmin();
   const admin = createAdminClient();
 
+  const validationError = validateAcuerdoCampos({
+    montoContratadoUsd: acuerdo.montoContratadoUsd,
+    creditosAsignados: acuerdo.creditosAsignados,
+    fechaInicio: acuerdo.fechaInicio,
+    fechaFin: acuerdo.fechaFin,
+    requireContratoFields: true,
+  });
+  if (validationError) return { error: validationError };
+  if (
+    acuerdo.montoContratadoUsd === null ||
+    !acuerdo.fechaInicio ||
+    !acuerdo.fechaFin
+  ) {
+    return { error: "Monto y fechas del acuerdo son obligatorios al activar." };
+  }
+
   const [planResult, clienteResult] = await Promise.all([
     admin
       .from("media_planes")
-      .select("id, creditos_mensuales")
-      .eq("id", planId)
+      .select("id, creditos_mensuales, tarifa_credito_usd")
+      .eq("id", acuerdo.planId)
       .eq("activo", true)
       .maybeSingle(),
     admin
@@ -153,26 +203,35 @@ export async function activarMediaCliente(
 
   if (planResult.error) return { error: planResult.error.message };
   if (!planResult.data) return { error: "Plan no encontrado." };
+  if (clienteResult.error) return { error: clienteResult.error.message };
+  if (!clienteResult.data) return { error: "Cliente no encontrado." };
 
-  const base = planResult.data.creditos_mensuales as number;
-  const asignados =
-    typeof creditosAsignados === "number" &&
-    Number.isFinite(creditosAsignados) &&
-    creditosAsignados > 0
-      ? Math.round(creditosAsignados)
-      : base;
+  const sponsorId = (clienteResult.data.sponsor_id as string | null) ?? null;
+  // CRM puede activar sin sponsor: dueño = cliente_id. Portal solo ve ciclos
+  // con sponsor_id (RLS legacy). No inventar sponsors ficticios.
+  if (!hasCicloOwner({ sponsorId, clienteId })) {
+    return { error: "El ciclo requiere cliente o sponsor como dueño." };
+  }
 
-  const periodo = firstOfMonth(new Date());
+  const tarifaSnapshot = snapshotTarifaCredito(
+    planResult.data.tarifa_credito_usd === null ||
+      planResult.data.tarifa_credito_usd === undefined
+      ? null
+      : Number(planResult.data.tarifa_credito_usd),
+  );
+
   const insert: Record<string, unknown> = {
     cliente_id: clienteId,
-    plan_id: planId,
-    periodo,
-    creditos_asignados: asignados,
+    plan_id: acuerdo.planId,
+    periodo: acuerdo.fechaInicio,
+    creditos_asignados: Math.round(acuerdo.creditosAsignados),
     creditos_rollover: 0,
+    monto_contratado_usd: acuerdo.montoContratadoUsd,
+    fecha_inicio: acuerdo.fechaInicio,
+    fecha_fin: acuerdo.fechaFin,
+    tarifa_credito_usd: tarifaSnapshot,
   };
-  if (clienteResult.data?.sponsor_id) {
-    insert.sponsor_id = clienteResult.data.sponsor_id;
-  }
+  if (sponsorId) insert.sponsor_id = sponsorId;
 
   const { error } = await admin.from("media_billing_cycles").insert(insert);
   if (error) return { error: error.message };
@@ -189,13 +248,30 @@ export async function actualizarCreditosCiclo(
   await requireAdmin();
   const admin = createAdminClient();
 
-  if (!Number.isFinite(creditosAsignados) || creditosAsignados <= 0) {
-    return { error: "Los créditos deben ser un número mayor a 0." };
-  }
+  const { data: cycle, error: cycleError } = await admin
+    .from("media_billing_cycles")
+    .select("id, creditos_extra, creditos_rollover")
+    .eq("id", billingCycleId)
+    .maybeSingle();
+
+  if (cycleError) return { error: cycleError.message };
+  if (!cycle) return { error: "Ciclo no encontrado." };
+
+  const consumidosResult = await sumCreditosConsumidos(admin, billingCycleId);
+  if (consumidosResult.error) return { error: consumidosResult.error };
+
+  const asignados = Math.round(creditosAsignados);
+  const saldoError = validateEdicionCreditos({
+    creditosAsignados: asignados,
+    creditosExtra: (cycle.creditos_extra as number | null) ?? 0,
+    creditosRollover: (cycle.creditos_rollover as number) || 0,
+    creditosConsumidos: consumidosResult.total,
+  });
+  if (saldoError) return { error: saldoError };
 
   const { error } = await admin
     .from("media_billing_cycles")
-    .update({ creditos_asignados: Math.round(creditosAsignados) })
+    .update({ creditos_asignados: asignados })
     .eq("id", billingCycleId);
 
   if (error) return { error: error.message };
@@ -215,13 +291,25 @@ export async function cerrarCicloCliente(
   const { data: cycle, error: cycleError } = await admin
     .from("media_billing_cycles")
     .select(
-      "id, cliente_id, sponsor_id, periodo, creditos_asignados, creditos_extra, creditos_rollover",
+      "id, cliente_id, sponsor_id, periodo, creditos_asignados, creditos_extra, creditos_rollover, fecha_inicio, fecha_fin",
     )
     .eq("id", billingCycleId)
     .maybeSingle();
 
   if (cycleError) return { error: cycleError.message };
   if (!cycle) return { error: "Ciclo no encontrado." };
+
+  if (
+    !isCierreMensualCompatible({
+      fechaInicio: (cycle.fecha_inicio as string | null) ?? null,
+      fechaFin: (cycle.fecha_fin as string | null) ?? null,
+    })
+  ) {
+    return {
+      error:
+        "Este acuerdo usa un período libre. El cierre mensual automático no aplica: no se inventa el siguiente período ni el destino del saldo. Configura el próximo acuerdo manualmente cuando corresponda.",
+    };
+  }
 
   const [usadosResult, planResult] = await Promise.all([
     admin
@@ -262,6 +350,7 @@ export async function cerrarCicloCliente(
     ),
   );
 
+  // No inventar monto, fechas ni tarifa de contrato en el ciclo del cierre.
   const insert: Record<string, unknown> = {
     cliente_id: cycle.cliente_id,
     plan_id: nuevoPlanId,
@@ -600,6 +689,7 @@ export async function crearPlan(
   nombre: string,
   creditosMensuales: number,
   precioUsd: number,
+  tarifaCreditoUsd: number | null = null,
 ): Promise<MediaActionState> {
   await requireAdmin();
   const admin = createAdminClient();
@@ -608,6 +698,7 @@ export async function crearPlan(
     nombre,
     creditos_mensuales: creditosMensuales,
     precio_usd: precioUsd,
+    tarifa_credito_usd: tarifaCreditoUsd,
   });
 
   if (error) return { error: error.message };
@@ -620,13 +711,19 @@ export async function actualizarPlan(
   nombre: string,
   creditosMensuales: number,
   precioUsd: number,
+  tarifaCreditoUsd: number | null = null,
 ): Promise<MediaActionState> {
   await requireAdmin();
   const admin = createAdminClient();
 
   const { error } = await admin
     .from("media_planes")
-    .update({ nombre, creditos_mensuales: creditosMensuales, precio_usd: precioUsd })
+    .update({
+      nombre,
+      creditos_mensuales: creditosMensuales,
+      precio_usd: precioUsd,
+      tarifa_credito_usd: tarifaCreditoUsd,
+    })
     .eq("id", id);
 
   if (error) return { error: error.message };
@@ -651,6 +748,84 @@ export async function togglePlan(
   return { error: null, success: true };
 }
 
+export async function actualizarAcuerdoCiclo(
+  billingCycleId: string,
+  clienteId: string,
+  acuerdo: AcuerdoMediaInput,
+): Promise<MediaActionState> {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const validationError = validateAcuerdoCampos({
+    montoContratadoUsd: acuerdo.montoContratadoUsd,
+    creditosAsignados: acuerdo.creditosAsignados,
+    fechaInicio: acuerdo.fechaInicio,
+    fechaFin: acuerdo.fechaFin,
+    requireContratoFields: false,
+  });
+  if (validationError) return { error: validationError };
+
+  const { data: cycle, error: cycleError } = await admin
+    .from("media_billing_cycles")
+    .select("id, creditos_extra, creditos_rollover, periodo")
+    .eq("id", billingCycleId)
+    .maybeSingle();
+
+  if (cycleError) return { error: cycleError.message };
+  if (!cycle) return { error: "Ciclo no encontrado." };
+
+  const { data: plan, error: planError } = await admin
+    .from("media_planes")
+    .select("id, tarifa_credito_usd")
+    .eq("id", acuerdo.planId)
+    .eq("activo", true)
+    .maybeSingle();
+
+  if (planError) return { error: planError.message };
+  if (!plan) return { error: "Plan no encontrado." };
+
+  const consumidosResult = await sumCreditosConsumidos(admin, billingCycleId);
+  if (consumidosResult.error) return { error: consumidosResult.error };
+
+  const asignados = Math.round(acuerdo.creditosAsignados);
+  const saldoError = validateEdicionCreditos({
+    creditosAsignados: asignados,
+    creditosExtra: (cycle.creditos_extra as number | null) ?? 0,
+    creditosRollover: (cycle.creditos_rollover as number) || 0,
+    creditosConsumidos: consumidosResult.total,
+  });
+  if (saldoError) return { error: saldoError };
+
+  const tarifaSnapshot = snapshotTarifaCredito(
+    plan.tarifa_credito_usd === null || plan.tarifa_credito_usd === undefined
+      ? null
+      : Number(plan.tarifa_credito_usd),
+  );
+
+  const fechaInicio = acuerdo.fechaInicio?.trim() || null;
+  const fechaFin = acuerdo.fechaFin?.trim() || null;
+
+  const { error } = await admin
+    .from("media_billing_cycles")
+    .update({
+      plan_id: acuerdo.planId,
+      creditos_asignados: asignados,
+      monto_contratado_usd: acuerdo.montoContratadoUsd,
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      // Conserva período histórico si las fechas siguen Sin registrar.
+      periodo: fechaInicio ?? (cycle.periodo as string),
+      tarifa_credito_usd: tarifaSnapshot,
+    })
+    .eq("id", billingCycleId);
+
+  if (error) return { error: error.message };
+
+  revalidateMedia(clienteId);
+  return { error: null, success: true };
+}
+
+/** @deprecated Prefer actualizarAcuerdoCiclo; kept for callers that only change plan+créditos. */
 export async function cambiarPlanCiclo(
   billingCycleId: string,
   nuevoPlanId: string,
@@ -660,34 +835,47 @@ export async function cambiarPlanCiclo(
   await requireAdmin();
   const admin = createAdminClient();
 
-  const { data: plan, error: planError } = await admin
-    .from("media_planes")
-    .select("creditos_mensuales")
-    .eq("id", nuevoPlanId)
-    .eq("activo", true)
+  const { data: cycle, error: cycleError } = await admin
+    .from("media_billing_cycles")
+    .select(
+      "id, creditos_asignados, creditos_extra, creditos_rollover, monto_contratado_usd, fecha_inicio, fecha_fin",
+    )
+    .eq("id", billingCycleId)
     .maybeSingle();
 
-  if (planError) return { error: planError.message };
-  if (!plan) return { error: "Plan no encontrado." };
+  if (cycleError) return { error: cycleError.message };
+  if (!cycle) return { error: "Ciclo no encontrado." };
 
-  const base = plan.creditos_mensuales as number;
-  const asignados =
-    typeof creditosAsignados === "number" &&
-    Number.isFinite(creditosAsignados) &&
-    creditosAsignados > 0
-      ? Math.round(creditosAsignados)
-      : base;
+  const fechaInicio = (cycle.fecha_inicio as string | null) ?? null;
+  const fechaFin = (cycle.fecha_fin as string | null) ?? null;
+  const monto =
+    cycle.monto_contratado_usd === null ||
+    cycle.monto_contratado_usd === undefined
+      ? null
+      : Number(cycle.monto_contratado_usd);
 
-  const { error } = await admin
-    .from("media_billing_cycles")
-    .update({
-      plan_id: nuevoPlanId,
-      creditos_asignados: asignados,
-    })
-    .eq("id", billingCycleId);
+  if (
+    !fechaInicio ||
+    !fechaFin ||
+    monto === null ||
+    !Number.isFinite(monto)
+  ) {
+    return {
+      error:
+        "Completa monto y fechas del acuerdo antes de cambiar solo el plan. Usa la configuración del acuerdo.",
+    };
+  }
 
-  if (error) return { error: error.message };
-
-  revalidateMedia(clienteId);
-  return { error: null, success: true };
+  return actualizarAcuerdoCiclo(billingCycleId, clienteId, {
+    planId: nuevoPlanId,
+    creditosAsignados:
+      typeof creditosAsignados === "number" &&
+      Number.isFinite(creditosAsignados) &&
+      creditosAsignados > 0
+        ? Math.round(creditosAsignados)
+        : (cycle.creditos_asignados as number),
+    montoContratadoUsd: monto,
+    fechaInicio,
+    fechaFin,
+  });
 }

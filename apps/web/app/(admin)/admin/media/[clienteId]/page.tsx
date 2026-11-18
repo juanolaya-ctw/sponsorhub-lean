@@ -82,7 +82,7 @@ export default async function ClienteMediaPage({
       admin
         .from("media_billing_cycles")
         .select(
-          "id, plan_id, periodo, creditos_asignados, creditos_extra, creditos_rollover",
+          "id, plan_id, periodo, creditos_asignados, creditos_extra, creditos_rollover, monto_contratado_usd, fecha_inicio, fecha_fin",
         )
         .eq("cliente_id", clienteId)
         .order("periodo", { ascending: false })
@@ -94,7 +94,7 @@ export default async function ClienteMediaPage({
         .order("nombre"),
       admin
         .from("media_planes")
-        .select("id, nombre, creditos_mensuales")
+        .select("id, nombre, creditos_mensuales, tarifa_credito_usd")
         .eq("activo", true)
         .order("creditos_mensuales"),
     ]);
@@ -257,6 +257,10 @@ export default async function ClienteMediaPage({
     id: p.id as string,
     nombre: p.nombre as string,
     creditosMensuales: p.creditos_mensuales as number,
+    tarifaCreditoUsd:
+      p.tarifa_credito_usd === null || p.tarifa_credito_usd === undefined
+        ? null
+        : Number(p.tarifa_credito_usd),
   }));
 
   const resolveAssetNombre = (assetId: unknown) =>
@@ -487,6 +491,9 @@ export default async function ClienteMediaPage({
                   billingCycleId={currentCycleId}
                   currentPlanId={currentCycle!.plan_id as string}
                   currentCreditos={currentAsignados}
+                  currentMontoUsd={currentCycle!.monto_contratado_usd === null || currentCycle!.monto_contratado_usd === undefined ? null : Number(currentCycle!.monto_contratado_usd)}
+                  currentFechaInicio={(currentCycle!.fecha_inicio as string | null) ?? null}
+                  currentFechaFin={(currentCycle!.fecha_fin as string | null) ?? null}
                   planes={planes}
                   clienteId={clienteId}
                 />
@@ -518,6 +525,8 @@ export default async function ClienteMediaPage({
                   currentPlanId={currentCycle!.plan_id as string}
                   planes={planes}
                   disponibles={currentDisponibles}
+                  fechaInicio={(currentCycle!.fecha_inicio as string | null) ?? null}
+                  fechaFin={(currentCycle!.fecha_fin as string | null) ?? null}
                   clienteId={clienteId}
                 />
               </>

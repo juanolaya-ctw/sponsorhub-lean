@@ -78,8 +78,8 @@ export function EditarCreditosDialog({
         <DialogHeader>
           <DialogTitle>Editar créditos del ciclo</DialogTitle>
           <DialogDescription>
-            Ajusta el monto del deal (ej. One Time 2000 / 2500 / 3000) sin
-            cambiar el plan.
+            Ajusta los créditos asignados. El saldo resultante debe ser
+            no negativo usando asignados + top-ups + rollover − consumidos.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
