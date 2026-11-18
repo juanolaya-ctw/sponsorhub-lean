@@ -21,6 +21,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { activarAssetCliente } from "../actions";
+import {
+  EMPTY_INSTRUCCIONES,
+  InstruccionesInsumosFields,
+} from "./instrucciones-insumos-fields";
 
 type CatalogItem = { id: string; nombre: string; costoCreditos: number };
 
@@ -39,6 +43,7 @@ export function ActivarAssetDialog({
   const [open, setOpen] = useState(false);
   const [assetId, setAssetId] = useState("");
   const [query, setQuery] = useState("");
+  const [instrucciones, setInstrucciones] = useState(EMPTY_INSTRUCCIONES);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -53,6 +58,7 @@ export function ActivarAssetDialog({
     if (next) {
       setAssetId("");
       setQuery("");
+      setInstrucciones(EMPTY_INSTRUCCIONES);
       setError(null);
     }
   }, []);
@@ -67,6 +73,8 @@ export function ActivarAssetDialog({
         billingCycleId,
         assetId,
         clienteId,
+        undefined,
+        instrucciones,
       );
       if (result.error) setError(result.error);
       else {
@@ -83,7 +91,7 @@ export function ActivarAssetDialog({
           + Activar asset
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Activar asset</DialogTitle>
           <DialogDescription>
@@ -159,6 +167,20 @@ export function ActivarAssetDialog({
               Costo: <strong>{selected.costoCreditos} cr.</strong> · Quedarán:{" "}
               <strong>{disponibles - selected.costoCreditos}</strong>
             </p>
+          ) : null}
+          {selected ? (
+            <details className="rounded-lg border border-border px-3 py-2">
+              <summary className="cursor-pointer text-sm font-medium">
+                Instrucciones de insumos para el cliente (opcional)
+              </summary>
+              <div className="mt-3">
+                <InstruccionesInsumosFields
+                  value={instrucciones}
+                  onChange={setInstrucciones}
+                  idPrefix="activar-asset"
+                />
+              </div>
+            </details>
           ) : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </div>

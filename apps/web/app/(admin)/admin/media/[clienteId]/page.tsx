@@ -18,6 +18,8 @@ import { ActivarAssetDialog } from "./activar-asset-dialog";
 import { AssetEstadoSelect } from "./asset-estado-select";
 import { CerrarCicloDialog } from "./cerrar-ciclo-dialog";
 import { EditarNotasDialog } from "./editar-notas-dialog";
+import { InstruccionesInsumosDialog } from "./instrucciones-insumos-dialog";
+import { formatFechaCorta, numerarPiezas, tieneInstrucciones } from "@/lib/media/portal-cliente";
 import { TopupDialog } from "./topup-dialog";
 import { CambiarPlanDialog } from "./cambiar-plan-dialog";
 import { EditarCreditosDialog } from "./editar-creditos-dialog";
@@ -157,7 +159,7 @@ export default async function ClienteMediaPage({
       ? admin
           .from("media_assets_ejecutados")
           .select(
-            "id, billing_cycle_id, asset_id, costo_creditos, estado, notas_cs, evidencias_url, entregado_at",
+            "id, billing_cycle_id, asset_id, costo_creditos, estado, notas_cs, evidencias_url, entregado_at, insumos_notas, insumos_formato, insumos_fecha_limite, created_at",
           )
           .in("billing_cycle_id", allCycleIds)
           .order("created_at", { ascending: false })
@@ -185,6 +187,10 @@ export default async function ClienteMediaPage({
     notas_cs: string | null;
     evidencias_url: string | null;
     entregado_at: string | null;
+    insumos_notas: string | null;
+    insumos_formato: string | null;
+    insumos_fecha_limite: string | null;
+    created_at: string | null;
   };
 
   const allAssets = (assetsResult.data ?? []).map((a) => ({
@@ -196,6 +202,10 @@ export default async function ClienteMediaPage({
     notas_cs: (a.notas_cs as string | null) ?? null,
     evidencias_url: (a.evidencias_url as string | null) ?? null,
     entregado_at: (a.entregado_at as string | null) ?? null,
+    insumos_notas: (a.insumos_notas as string | null) ?? null,
+    insumos_formato: (a.insumos_formato as string | null) ?? null,
+    insumos_fecha_limite: (a.insumos_fecha_limite as string | null) ?? null,
+    created_at: (a.created_at as string | null) ?? null,
   })) as AssetRow[];
 
   const catalogMap = new Map(
@@ -227,6 +237,12 @@ export default async function ClienteMediaPage({
   const currentAssets = currentCycleId
     ? (assetsPorCiclo.get(currentCycleId) ?? [])
     : [];
+  // Mismo #n que ve el cliente en /portal/media (orden de creación).
+  const numeroPieza = new Map(
+    numerarPiezas(
+      currentAssets.map((a) => ({ id: a.id, createdAt: a.created_at })),
+    ).map((p) => [p.id, p.numero]),
+  );
   const currentUsados = currentCycleId
     ? (usadosPorCiclo.get(currentCycleId) ?? 0)
     : 0;
@@ -322,10 +338,24 @@ export default async function ClienteMediaPage({
                 const estado =
                   (a.estado as AssetEstado) ?? "pendiente_insumos";
                 const assetNombre = resolveAssetNombre(a.asset_id);
+                const insumosDefinidos = tieneInstrucciones({
+                  instrucciones: a.insumos_notas,
+                  formato: a.insumos_formato,
+                  fechaLimite: a.insumos_fecha_limite,
+                });
+                const fechaLimite = formatFechaCorta(a.insumos_fecha_limite);
                 return (
                   <TableRow key={a.id}>
                     <TableCell className="font-medium">
+                      <span className="mr-1 text-muted-foreground">
+                        #{numeroPieza.get(a.id) ?? "?"}
+                      </span>
                       {assetNombre}
+                      <p className="text-xs font-normal text-muted-foreground">
+                        {insumosDefinidos
+                          ? `Insumos definidos${fechaLimite ? ` · límite ${fechaLimite}` : ""}`
+                          : "Sin instrucciones de insumos"}
+                      </p>
                     </TableCell>
                     <TableCell>{a.costo_creditos} cr.</TableCell>
                     <TableCell>
@@ -354,6 +384,17 @@ export default async function ClienteMediaPage({
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <InstruccionesInsumosDialog
+                          assetId={a.id}
+                          assetNombre={assetNombre}
+                          clienteId={clienteId}
+                          definidas={insumosDefinidos}
+                          initial={{
+                            instrucciones: a.insumos_notas ?? "",
+                            formato: a.insumos_formato ?? "",
+                            fechaLimite: a.insumos_fecha_limite ?? "",
+                          }}
+                        />
                         <EditarNotasDialog
                           assetId={a.id}
                           assetNombre={assetNombre}

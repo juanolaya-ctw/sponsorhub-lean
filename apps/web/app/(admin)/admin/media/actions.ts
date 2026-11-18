@@ -10,6 +10,10 @@ import {
   validateAcuerdoCampos,
   validateEdicionCreditos,
 } from "@/lib/media/acuerdo";
+import {
+  normalizeInstruccionesInsumos,
+  type InstruccionesInsumosInput,
+} from "@/lib/media/portal-cliente";
 
 export type MediaActionState = { error: string | null; success?: boolean };
 export type MediaActionStateWithId = MediaActionState & { clienteId?: string };
@@ -519,9 +523,17 @@ export async function activarAssetCliente(
   assetId: string,
   clienteId: string,
   eventoId?: string,
+  instrucciones?: InstruccionesInsumosInput,
 ): Promise<MediaActionState> {
   await requireAdmin();
   const admin = createAdminClient();
+
+  const instruccionesPatch = instrucciones
+    ? normalizeInstruccionesInsumos(instrucciones)
+    : null;
+  if (instruccionesPatch && !instruccionesPatch.ok) {
+    return { error: instruccionesPatch.error };
+  }
 
   const [cycleResult, assetResult] = await Promise.all([
     admin
@@ -573,6 +585,7 @@ export async function activarAssetCliente(
   };
   if (cycle.sponsor_id) insert.sponsor_id = cycle.sponsor_id;
   if (eventoId) insert.evento_id = eventoId;
+  if (instruccionesPatch?.ok) Object.assign(insert, instruccionesPatch.patch);
 
   const { error } = await admin.from("media_assets_ejecutados").insert(insert);
   if (error) return { error: error.message };
@@ -603,6 +616,30 @@ export async function actualizarEstadoAsset(
     .eq("id", assetId);
 
   if (error) return { error: error.message };
+
+  revalidateMedia(clienteId);
+  return { error: null, success: true };
+}
+
+/** Crea o edita las instrucciones de insumos que ve el cliente en la pieza. */
+export async function actualizarInstruccionesInsumos(
+  assetEjecutadoId: string,
+  clienteId: string,
+  input: InstruccionesInsumosInput,
+): Promise<MediaActionState> {
+  await requireAdmin();
+  const normalized = normalizeInstruccionesInsumos(input);
+  if (!normalized.ok) return { error: normalized.error };
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("media_assets_ejecutados")
+    .update(normalized.patch)
+    .eq("id", assetEjecutadoId)
+    .select("id");
+
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { error: "Pieza no encontrada." };
 
   revalidateMedia(clienteId);
   return { error: null, success: true };

@@ -3,6 +3,11 @@ import { getAuthContext, requireSponsor } from "@/lib/auth/require-admin"
 import { getMediaContactoContext } from "@/lib/portal/media-contacto"
 import { getSponsorContext } from "@/lib/portal/sponsor"
 import { createAdminClient } from "@/lib/supabase/admin"
+import {
+  formatPeriodoCiclo,
+  numerarPiezas,
+  resumenSaldo,
+} from "@/lib/media/portal-cliente"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { AprobarAssetButton } from "./aprobar-asset-button"
@@ -48,7 +53,7 @@ async function PortalMediaContactoPage() {
   const cyclesResult = await admin
     .from("media_billing_cycles")
     .select(
-      "id, cliente_id, plan_id, periodo, creditos_asignados, creditos_extra, creditos_rollover",
+      "id, cliente_id, plan_id, periodo, creditos_asignados, creditos_extra, creditos_rollover, fecha_inicio, fecha_fin, tarifa_credito_usd, monto_contratado_usd",
     )
     .in("cliente_id", media.clienteIds)
     .order("periodo", { ascending: false })
@@ -58,15 +63,37 @@ async function PortalMediaContactoPage() {
   const cycles = cyclesResult.data ?? []
   const cycleIds = cycles.map((c) => c.id as string)
 
-  const assetsResult =
+  const planIds = [
+    ...new Set(cycles.map((c) => c.plan_id as string | null).filter(Boolean)),
+  ] as string[]
+
+  const [assetsResult, planesResult] = await Promise.all([
     cycleIds.length > 0
-      ? await admin
+      ? admin
           .from("media_assets_ejecutados")
-          .select("id, billing_cycle_id, asset_id, costo_creditos, estado")
+          .select(
+            "id, billing_cycle_id, asset_id, costo_creditos, estado, created_at, entregado_at, insumos_notas, insumos_formato, insumos_fecha_limite",
+          )
           .in("billing_cycle_id", cycleIds)
-      : { data: [], error: null }
+      : Promise.resolve({ data: [], error: null }),
+    planIds.length > 0
+      ? admin
+          .from("media_planes")
+          .select("id, nombre, tarifa_credito_usd")
+          .in("id", planIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
   if (assetsResult.error) throw new Error(assetsResult.error.message)
   const assets = assetsResult.data ?? []
+  const planMap = new Map(
+    (planesResult.data ?? []).map((p) => [
+      p.id as string,
+      {
+        nombre: p.nombre as string,
+        tarifa: toNumberOrNull(p.tarifa_credito_usd),
+      },
+    ]),
+  )
 
   const insumosResult =
     assets.length > 0
@@ -78,6 +105,7 @@ async function PortalMediaContactoPage() {
             assets.map((a) => a.id as string),
           )
           .in("cliente_id", media.clienteIds)
+          .order("created_at", { ascending: true })
       : { data: [], error: null }
   if (insumosResult.error) throw new Error(insumosResult.error.message)
 
@@ -110,34 +138,61 @@ async function PortalMediaContactoPage() {
     insumosByAsset.set(aid, list)
   }
 
-  const viewCycles: ContactoMediaCycle[] = cycles.map((c) => {
+  const viewCycles: ContactoMediaCycle[] = cycles.map((c, idx) => {
     const cid = c.id as string
     const clienteId = c.cliente_id as string
     const cycleAssets = assets.filter(
       (a) => (a.billing_cycle_id as string) === cid,
     )
-    const usados = cycleAssets
-      .filter((a) => a.estado !== "cancelado")
-      .reduce((s, a) => s + (Number(a.costo_creditos) || 0), 0)
-    const asignados = c.creditos_asignados as number
-    const extra = (c.creditos_extra as number | null) ?? 0
-    const rollover = c.creditos_rollover as number
-    const creditosTotales = asignados + extra + rollover
-    const label = formatPeriodo(c.periodo as string)
+    const saldo = resumenSaldo({
+      asignados: c.creditos_asignados as number,
+      extra: (c.creditos_extra as number | null) ?? 0,
+      rollover: (c.creditos_rollover as number | null) ?? 0,
+      piezas: cycleAssets.map((a) => ({
+        costoCreditos: a.costo_creditos as number,
+        estado: a.estado as string,
+      })),
+    })
+    const plan = planMap.get(c.plan_id as string) ?? null
+    const periodo = formatPeriodoCiclo({
+      periodo: c.periodo as string,
+      fechaInicio: (c.fecha_inicio as string | null) ?? null,
+      fechaFin: (c.fecha_fin as string | null) ?? null,
+    })
+
+    const numeradas = numerarPiezas(
+      cycleAssets.map((a) => ({
+        id: a.id as string,
+        createdAt: (a.created_at as string | null) ?? null,
+        row: a,
+      })),
+    )
 
     return {
       id: cid,
-      label,
-      asignados,
-      creditosTotales,
-      usados,
-      disponibles: creditosTotales - usados,
-      assets: cycleAssets.map((a) => ({
+      esActual: idx === 0,
+      periodoLabel: periodo.label,
+      periodoEsRango: periodo.esRango,
+      saldo,
+      plan: {
+        nombre: plan?.nombre ?? null,
+        // Snapshot del ciclo primero; si no, tarifa del catálogo. Nunca se inventa.
+        tarifaCreditoUsd:
+          toNumberOrNull(c.tarifa_credito_usd) ?? plan?.tarifa ?? null,
+        montoContratadoUsd: toNumberOrNull(c.monto_contratado_usd),
+      },
+      assets: numeradas.map(({ numero, row: a }) => ({
         id: a.id as string,
+        numero,
         nombre: catalogMap.get(a.asset_id as string) ?? "Pieza",
-        estado: (a.estado as AssetEstado) ?? "pendiente_insumos",
-        costoCreditos: a.costo_creditos as number,
+        estado: ((a.estado as string) ?? "pendiente_insumos") as AssetEstado,
+        costoCreditos: Number(a.costo_creditos) || 0,
         clienteId,
+        creadaEl: (a.created_at as string | null) ?? null,
+        entregadaEl: (a.entregado_at as string | null) ?? null,
+        instrucciones: (a.insumos_notas as string | null) ?? null,
+        formato: (a.insumos_formato as string | null) ?? null,
+        fechaLimite: (a.insumos_fecha_limite as string | null) ?? null,
         insumos: insumosByAsset.get(a.id as string) ?? [],
       })),
     }
@@ -150,6 +205,12 @@ async function PortalMediaContactoPage() {
       cycles={viewCycles}
     />
   )
+}
+
+function toNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
 }
 
 
@@ -272,7 +333,7 @@ async function PortalMediaSponsorPage() {
           <section className="rounded-xl border border-border bg-white p-6">
             <p className="text-5xl font-bold">{currentDisponibles}</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              créditos disponibles de {currentAsignados} asignados
+              créditos disponibles de {currentAsignados} del plan
               {currentRollover > 0 ? ` + ${currentRollover} de rollover` : ""}
             </p>
             <div className="mt-4 h-3 overflow-hidden rounded-full bg-muted">
@@ -282,7 +343,7 @@ async function PortalMediaSponsorPage() {
               />
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              {pct}% usado este mes ·{" "}
+              {pct}% asignado a piezas ·{" "}
               <span className="font-medium">1 crédito = $1 USD</span>
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -364,11 +425,11 @@ async function PortalMediaSponsorPage() {
                     </span>
                     <span className="text-muted-foreground">{planNombre}</span>
                     <span className="ml-auto flex gap-4 text-right text-xs text-muted-foreground">
-                      <span>Asig. {asignados}</span>
+                      <span>Plan {asignados}</span>
                       {rollover > 0 ? (
                         <span>Roll. +{rollover}</span>
                       ) : null}
-                      <span>Usados {usados}</span>
+                      <span>En piezas {usados}</span>
                       <span className="font-semibold text-foreground">
                         Disp. {disponibles}
                       </span>
