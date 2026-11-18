@@ -19,7 +19,16 @@ import { AssetEstadoSelect } from "./asset-estado-select";
 import { CerrarCicloDialog } from "./cerrar-ciclo-dialog";
 import { EditarNotasDialog } from "./editar-notas-dialog";
 import { InstruccionesInsumosDialog } from "./instrucciones-insumos-dialog";
-import { formatFechaCorta, numerarPiezas, tieneInstrucciones } from "@/lib/media/portal-cliente";
+import { MarcaAdminPanel, type MarcaAdminItem } from "./marca-admin-panel";
+import {
+  clasificarChecklist,
+  isMissingTableError,
+  isTipoMarca,
+  type TipoMarca,
+} from "@/lib/media/insumos-marca";
+import { instruccionesEfectivas } from "@/lib/media/portal-cliente";
+import { MEDIA_INSUMOS_BUCKET } from "@/lib/media/media-insumos";
+import { estadoFechaLimite, formatFechaCorta, hoyBogota, numerarPiezas, tieneInstrucciones } from "@/lib/media/portal-cliente";
 import { TopupDialog } from "./topup-dialog";
 import { CambiarPlanDialog } from "./cambiar-plan-dialog";
 import { EditarCreditosDialog } from "./editar-creditos-dialog";
@@ -159,7 +168,7 @@ export default async function ClienteMediaPage({
       ? admin
           .from("media_assets_ejecutados")
           .select(
-            "id, billing_cycle_id, asset_id, costo_creditos, estado, notas_cs, evidencias_url, entregado_at, insumos_notas, insumos_formato, insumos_fecha_limite, created_at",
+            "id, billing_cycle_id, asset_id, costo_creditos, estado, notas_cs, evidencias_url, entregado_at, insumos_notas, insumos_formato, insumos_fecha_limite, fecha_planeada, created_at",
           )
           .in("billing_cycle_id", allCycleIds)
           .order("created_at", { ascending: false })
@@ -191,6 +200,7 @@ export default async function ClienteMediaPage({
     insumos_formato: string | null;
     insumos_fecha_limite: string | null;
     created_at: string | null;
+    fecha_planeada: string | null;
   };
 
   const allAssets = (assetsResult.data ?? []).map((a) => ({
@@ -206,6 +216,7 @@ export default async function ClienteMediaPage({
     insumos_formato: (a.insumos_formato as string | null) ?? null,
     insumos_fecha_limite: (a.insumos_fecha_limite as string | null) ?? null,
     created_at: (a.created_at as string | null) ?? null,
+    fecha_planeada: (a.fecha_planeada as string | null) ?? null,
   })) as AssetRow[];
 
   const catalogMap = new Map(
@@ -283,6 +294,54 @@ export default async function ClienteMediaPage({
         : Number(p.tarifa_credito_usd),
   }));
 
+  // ── Archivos de marca (empresa) ──
+  const marcaResult = await admin
+    .from("media_cliente_insumos_marca")
+    .select("id, tipo, nombre_archivo, storage_path, created_at")
+    .eq("cliente_id", clienteId)
+    .order("created_at", { ascending: false });
+  let marcaReady = true;
+  if (marcaResult.error) {
+    if (!isMissingTableError(marcaResult.error)) {
+      throw new Error(marcaResult.error.message);
+    }
+    marcaReady = false;
+  }
+  const marcaRows = marcaReady ? (marcaResult.data ?? []) : [];
+  const marcaItems: MarcaAdminItem[] = [];
+  const vistos = new Set<string>();
+  for (const row of marcaRows) {
+    const tipo = row.tipo as string;
+    if (!isTipoMarca(tipo) || vistos.has(tipo)) continue;
+    vistos.add(tipo);
+    const { data: signed } = await admin.storage
+      .from(MEDIA_INSUMOS_BUCKET)
+      .createSignedUrl(row.storage_path as string, 60 * 60);
+    marcaItems.push({
+      id: row.id as string,
+      tipo,
+      nombreArchivo: row.nombre_archivo as string,
+      createdAt: row.created_at as string,
+      viewUrl: signed?.signedUrl ?? null,
+      anteriores: marcaRows.filter((r) => r.tipo === tipo).length - 1,
+    });
+  }
+  const pedidosPorTipo: Partial<Record<TipoMarca, number>> = {};
+  for (const a of currentAssets) {
+    const texto = instruccionesEfectivas(
+      a.insumos_notas,
+      checklistPorAsset.get(a.asset_id) ?? null,
+    ).texto;
+    const tipos = new Set(
+      clasificarChecklist(texto, new Map())
+        .map((i) => i.tipo)
+        .filter((t): t is TipoMarca => t !== null),
+    );
+    for (const t of tipos) pedidosPorTipo[t] = (pedidosPorTipo[t] ?? 0) + 1;
+  }
+
+  const hoy = hoyBogota();
+
   const resolveAssetNombre = (assetId: unknown) =>
     catalogMap.get(assetId as string) ?? "—";
 
@@ -332,6 +391,7 @@ export default async function ClienteMediaPage({
                 <TableHead>Asset</TableHead>
                 <TableHead>Costo</TableHead>
                 <TableHead>Estado</TableHead>
+                <TableHead>Fechas</TableHead>
                 <TableHead>Evidencias</TableHead>
                 <TableHead>Entregado</TableHead>
                 <TableHead />
@@ -373,6 +433,31 @@ export default async function ClienteMediaPage({
                         clienteId={clienteId}
                       />
                     </TableCell>
+                    <TableCell className="text-xs">
+                      {(() => {
+                        const e = estadoFechaLimite(a.insumos_fecha_limite, hoy);
+                        const planeada = formatFechaCorta(a.fecha_planeada);
+                        return (
+                          <div className="space-y-0.5">
+                            <p
+                              className={
+                                e === "vencida" && estado === "pendiente_insumos"
+                                  ? "font-medium text-amber-700"
+                                  : undefined
+                              }
+                            >
+                              Insumos: {fechaLimite ?? "sin fecha"}
+                              {e === "vencida" && estado === "pendiente_insumos"
+                                ? " (vencida)"
+                                : ""}
+                            </p>
+                            <p className="text-muted-foreground">
+                              Planeada: {planeada ?? "sin fecha"}
+                            </p>
+                          </div>
+                        );
+                      })()}
+                    </TableCell>
                     <TableCell>
                       {a.evidencias_url ? (
                         <a
@@ -402,6 +487,7 @@ export default async function ClienteMediaPage({
                               a.insumos_notas ?? checklistDefecto ?? "",
                             formato: a.insumos_formato ?? "",
                             fechaLimite: a.insumos_fecha_limite ?? "",
+                            fechaPlaneada: a.fecha_planeada ?? "",
                           }}
                         />
                         <EditarNotasDialog
@@ -648,6 +734,13 @@ export default async function ClienteMediaPage({
         filaEmail={(cliente.email_contacto as string | null) ?? null}
         filaTelefono={(cliente.telefono as string | null) ?? null}
         initialContactos={initialContactos}
+      />
+
+      <MarcaAdminPanel
+        clienteId={clienteId}
+        ready={marcaReady}
+        items={marcaItems}
+        pedidosPorTipo={pedidosPorTipo}
       />
 
       <ClienteMediaTabs

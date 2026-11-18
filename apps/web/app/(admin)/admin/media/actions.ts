@@ -11,6 +11,12 @@ import {
   validateEdicionCreditos,
 } from "@/lib/media/acuerdo";
 import {
+  assertMarcaPath,
+  isMissingTableError,
+  planUploadMarcaAdmin,
+} from "@/lib/media/insumos-marca";
+import { MEDIA_INSUMOS_BUCKET } from "@/lib/media/media-insumos";
+import {
   checklistToText,
   normalizeInstruccionesInsumos,
   parseChecklist,
@@ -931,4 +937,89 @@ export async function cambiarPlanCiclo(
     fechaInicio,
     fechaFin,
   });
+}
+
+// ── Insumos de marca por empresa (reutilizables en todas sus piezas) ─────────
+// Mismo flujo que eventos: prepare → uploadToSignedUrl → finalize.
+
+export async function prepararSubidaMarcaAdmin(
+  clienteId: string,
+  tipo: string,
+  filename: string,
+): Promise<{ data: { path: string; token: string } | null; error: string | null }> {
+  const { user } = await requireAdmin();
+  const plan = planUploadMarcaAdmin({
+    clienteId,
+    tipo,
+    filename,
+    uuid: crypto.randomUUID(),
+    userId: user.id,
+  });
+  if (!plan.ok) return { data: null, error: plan.error };
+  const admin = createAdminClient();
+  const { data, error } = await admin.storage
+    .from(MEDIA_INSUMOS_BUCKET)
+    .createSignedUploadUrl(plan.storagePath);
+  if (error) return { data: null, error: error.message };
+  return { data: { path: data.path, token: data.token }, error: null };
+}
+
+export async function finalizarSubidaMarcaAdmin(
+  clienteId: string,
+  tipo: string,
+  storagePath: string,
+  filename: string,
+): Promise<MediaActionState> {
+  const { user } = await requireAdmin();
+  const plan = planUploadMarcaAdmin({
+    clienteId,
+    tipo,
+    filename,
+    uuid: "check",
+    userId: user.id,
+  });
+  if (!plan.ok) return { error: plan.error };
+  const pathCheck = assertMarcaPath({ storagePath, clienteId, tipo });
+  if (!pathCheck.ok) return { error: pathCheck.error };
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("media_cliente_insumos_marca")
+    .insert({ ...plan.insert, storage_path: storagePath });
+  if (error) {
+    await admin.storage.from(MEDIA_INSUMOS_BUCKET).remove([storagePath]);
+    if (isMissingTableError(error)) {
+      return { error: "Falta aplicar la migración 0027 (archivos de marca)." };
+    }
+    return { error: error.message };
+  }
+  revalidateMedia(clienteId);
+  return { error: null, success: true };
+}
+
+export async function eliminarInsumoMarcaAdmin(
+  archivoId: string,
+  clienteId: string,
+): Promise<MediaActionState> {
+  await requireAdmin();
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("media_cliente_insumos_marca")
+    .delete()
+    .eq("id", archivoId)
+    .eq("cliente_id", clienteId)
+    .select("storage_path");
+  if (error) return { error: error.message };
+  const path = data?.[0]?.storage_path as string | undefined;
+  if (!path) return { error: "Archivo no encontrado." };
+
+  const { count } = await admin
+    .from("media_cliente_insumos_marca")
+    .select("id", { count: "exact", head: true })
+    .eq("storage_path", path);
+  if (!count) {
+    await admin.storage.from(MEDIA_INSUMOS_BUCKET).remove([path]);
+  }
+  revalidateMedia(clienteId);
+  return { error: null, success: true };
 }

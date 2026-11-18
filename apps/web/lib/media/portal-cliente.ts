@@ -200,6 +200,8 @@ export type InstruccionesInsumosInput = {
   instrucciones?: string | null
   formato?: string | null
   fechaLimite?: string | null
+  /** undefined = no tocar la fecha planeada. */
+  fechaPlaneada?: string | null
 }
 
 /** Columnas en media_assets_ejecutados. */
@@ -207,6 +209,7 @@ export type InstruccionesInsumosPatch = {
   insumos_notas: string | null
   insumos_formato: string | null
   insumos_fecha_limite: string | null
+  fecha_planeada?: string | null
 }
 
 function cleanText(value: string | null | undefined): string | null {
@@ -237,15 +240,20 @@ export function normalizeInstruccionesInsumos(
   if (fecha && !parseIsoDate(fecha)) {
     return { ok: false, error: "Fecha límite inválida (usa AAAA-MM-DD)." }
   }
-
-  return {
-    ok: true,
-    patch: {
-      insumos_notas: instrucciones,
-      insumos_formato: formato,
-      insumos_fecha_limite: fecha ? fecha.slice(0, 10) : null,
-    },
+  const planeada = cleanText(input.fechaPlaneada)
+  if (planeada && !parseIsoDate(planeada)) {
+    return { ok: false, error: "Fecha planeada inválida (usa AAAA-MM-DD)." }
   }
+
+  const patch: InstruccionesInsumosPatch = {
+    insumos_notas: instrucciones,
+    insumos_formato: formato,
+    insumos_fecha_limite: fecha ? fecha.slice(0, 10) : null,
+  }
+  if (input.fechaPlaneada !== undefined) {
+    patch.fecha_planeada = planeada ? planeada.slice(0, 10) : null
+  }
+  return { ok: true, patch }
 }
 
 export function tieneInstrucciones(p: {
@@ -300,4 +308,44 @@ export function normalizarNombreAsset(nombre: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
+}
+
+// ── Fechas de la pieza (zona Bogotá, fechas calendario) ──────────────────────
+
+/** Hoy en Bogotá como AAAA-MM-DD. */
+export function hoyBogota(now: Date = new Date()): string {
+  return now.toLocaleDateString("en-CA", { timeZone: "America/Bogota" })
+}
+
+function diasEntre(desde: string, hasta: string): number | null {
+  const a = parseIsoDate(desde)
+  const b = parseIsoDate(hasta)
+  if (!a || !b) return null
+  return Math.round((b.getTime() - a.getTime()) / 86_400_000)
+}
+
+export type EstadoFechaLimite = "vencida" | "hoy" | "pronto" | "a_tiempo"
+
+/** Estado de la fecha límite de insumos respecto a hoy (pronto = ≤ 3 días). */
+export function estadoFechaLimite(
+  fecha: string | null | undefined,
+  hoy: string,
+): EstadoFechaLimite | null {
+  if (!fecha) return null
+  const d = diasEntre(hoy, fecha.slice(0, 10))
+  if (d === null) return null
+  if (d < 0) return "vencida"
+  if (d === 0) return "hoy"
+  if (d <= 3) return "pronto"
+  return "a_tiempo"
+}
+
+/** La fecha planeada solo se muestra al cliente si es hoy o futura. */
+export function fechaPlaneadaVisible(
+  fecha: string | null | undefined,
+  hoy: string,
+): string | null {
+  if (!fecha) return null
+  const d = diasEntre(hoy, fecha.slice(0, 10))
+  return d !== null && d >= 0 ? fecha.slice(0, 10) : null
 }

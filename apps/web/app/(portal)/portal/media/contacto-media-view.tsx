@@ -4,18 +4,37 @@ import { useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { createClient } from "@/lib/supabase/client"
+import { MEDIA_INSUMOS_BUCKET } from "@/lib/media/media-insumos"
 import {
   estadoCliente,
   formatFechaCorta,
+  estadoFechaLimite,
+  fechaPlaneadaVisible,
   formatUsdTarifa,
-  parseChecklist,
+  hoyBogota,
+  type EstadoFechaLimite,
   piezaEjecutada,
   type AssetEstadoCliente,
   type ResumenSaldo,
 } from "@/lib/media/portal-cliente"
 import {
+  TIPOS_MARCA,
+  clasificarChecklist,
+  labelTipoMarca,
+  piezaEsperaAlCliente,
+  ultimoPorTipo,
+  type ArchivoMarca,
+  type ItemChecklist,
+  type TipoMarca,
+} from "@/lib/media/insumos-marca"
+import {
+  finalizarSubidaMarcaContacto,
+  firmarDescargaInsumoMarcaContacto,
   firmarDescargaInsumoMediaContacto,
-  subirInsumoMediaContacto,
+  prepararSubidaMarcaContacto,
+  finalizarSubidaInsumoPieza,
+  prepararSubidaInsumoPieza,
 } from "./contacto-insumos-actions"
 
 const MAX_MB = 15
@@ -33,6 +52,7 @@ export type ContactoMediaAsset = {
   instrucciones: string | null
   formato: string | null
   fechaLimite: string | null
+  fechaPlaneada: string | null
   insumos: {
     id: string
     nombreArchivo: string
@@ -76,14 +96,36 @@ function formatUsd(value: number) {
 
 const n = (v: number) => v.toLocaleString("es-CO")
 
+type MarcaCtx = {
+  ready: boolean
+  /** clienteId → último archivo por tipo */
+  porCliente: Map<string, Map<TipoMarca, ArchivoMarca>>
+}
+
+function itemsDePieza(asset: ContactoMediaAsset, marca: MarcaCtx): ItemChecklist[] {
+  const cargados = marca.porCliente.get(asset.clienteId) ?? new Map()
+  const items = clasificarChecklist(asset.instrucciones, cargados)
+  // Sin la tabla de marca activa, todo se muestra como ítem normal.
+  return marca.ready
+    ? items
+    : items.map((i) => ({ texto: i.texto, tipo: null, cargado: null }))
+}
+
 export function ContactoMediaView({
   ready,
   empresas,
   cycles,
+  marcaReady = false,
+  marcaPorCliente = {},
+  hoy,
 }: {
   ready: boolean
   empresas: { id: string; nombre: string }[]
   cycles: ContactoMediaCycle[]
+  marcaReady?: boolean
+  marcaPorCliente?: Record<string, ArchivoMarca[]>
+  /** Hoy en Bogotá (AAAA-MM-DD), calculado en el servidor. */
+  hoy?: string
 }) {
   if (!ready) {
     return (
@@ -98,6 +140,12 @@ export function ContactoMediaView({
   }
 
   const empresaLabel = empresas.map((e) => e.nombre).join(" · ")
+  const marca: MarcaCtx = {
+    ready: marcaReady,
+    porCliente: new Map(
+      empresas.map((e) => [e.id, ultimoPorTipo(marcaPorCliente[e.id] ?? [])]),
+    ),
+  }
 
   return (
     <main className="mx-auto max-w-4xl space-y-10 px-6 py-10">
@@ -123,16 +171,72 @@ export function ContactoMediaView({
           </p>
         </div>
       ) : (
-        cycles.map((cycle) => <CycleSection key={cycle.id} cycle={cycle} />)
+        <>
+          {marcaReady
+            ? empresas.map((e) => (
+                <MarcaSection
+                  key={e.id}
+                  clienteId={e.id}
+                  empresaNombre={empresas.length > 1 ? e.nombre : null}
+                  cargados={marca.porCliente.get(e.id) ?? new Map()}
+                  tiposPedidos={tiposPedidosPorCliente(cycles, marca, e.id)}
+                />
+              ))
+            : null}
+          {cycles.map((cycle) => (
+            <CycleSection
+              key={cycle.id}
+              cycle={cycle}
+              marca={marca}
+              hoy={hoy ?? hoyBogota()}
+            />
+          ))}
+        </>
       )}
     </main>
   )
 }
 
-function CycleSection({ cycle }: { cycle: ContactoMediaCycle }) {
+function tiposPedidosPorCliente(
+  cycles: ContactoMediaCycle[],
+  marca: MarcaCtx,
+  clienteId: string,
+): Set<TipoMarca> {
+  const out = new Set<TipoMarca>()
+  for (const c of cycles) {
+    for (const a of c.assets) {
+      if (a.clienteId !== clienteId) continue
+      for (const i of itemsDePieza(a, marca)) if (i.tipo) out.add(i.tipo)
+    }
+  }
+  return out
+}
+
+function CycleSection({
+  cycle,
+  marca,
+  hoy,
+}: {
+  cycle: ContactoMediaCycle
+  marca: MarcaCtx
+  hoy: string
+}) {
   const { saldo } = cycle
-  const pendientesTuyas = cycle.assets.filter(
-    (a) => estadoCliente(a.estado).esTurnoCliente,
+  const piezas = cycle.assets.map((asset) => {
+    const items = itemsDePieza(asset, marca)
+    return {
+      asset,
+      items,
+      espera: piezaEsperaAlCliente({
+        estado: asset.estado,
+        items,
+        archivosPieza: asset.insumos.length,
+      }),
+    }
+  })
+  const pendientesTuyas = piezas.filter((p) => p.espera).length
+  const vencidas = piezas.filter(
+    (p) => p.espera && estadoFechaLimite(p.asset.fechaLimite, hoy) === "vencida",
   ).length
 
   return (
@@ -247,9 +351,20 @@ function CycleSection({ cycle }: { cycle: ContactoMediaCycle }) {
               ? `Tienes ${pendientesTuyas} ${pendientesTuyas === 1 ? "pieza" : "piezas"} esperando tus archivos.`
               : "No tienes archivos pendientes por ahora."}
           </p>
+          {vencidas > 0 ? (
+            <p className="mt-1 text-amber-800">
+              {vencidas === 1
+                ? "En 1 pieza ya pasó la fecha sugerida de entrega."
+                : `En ${vencidas} piezas ya pasó la fecha sugerida de entrega.`}{" "}
+              Súbelos apenas puedas para no retrasarlas.
+            </p>
+          ) : null}
           <p className="mt-1 text-muted-foreground">
-            Sube en cada pieza los archivos que te pedimos (máx. {MAX_MB} MB por
-            archivo). Subir un archivo no aprueba la pieza: el equipo de
+            {marca.ready
+              ? "Tus archivos de marca (logos, manual…) se suben una sola vez y sirven para todas tus piezas. "
+              : ""}
+            Sube en cada pieza solo lo que es propio de esa pieza (máx. {MAX_MB}{" "}
+            MB por archivo). Subir un archivo no aprueba la pieza: el equipo de
             Colombia Tech lo revisa y actualiza el estado.
           </p>
         </div>
@@ -260,28 +375,53 @@ function CycleSection({ cycle }: { cycle: ContactoMediaCycle }) {
       )}
 
       <div className="space-y-3">
-        {cycle.assets.map((asset) => (
-          <AssetInsumosCard key={asset.id} asset={asset} />
+        {piezas.map(({ asset, items, espera }) => (
+          <AssetInsumosCard
+            key={asset.id}
+            asset={asset}
+            items={items}
+            espera={espera}
+            hoy={hoy}
+          />
         ))}
       </div>
     </section>
   )
 }
 
-function AssetInsumosCard({ asset }: { asset: ContactoMediaAsset }) {
+function AssetInsumosCard({
+  asset,
+  items,
+  espera,
+  hoy,
+}: {
+  asset: ContactoMediaAsset
+  items: ItemChecklist[]
+  espera: boolean
+  hoy: string
+}) {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
-  const estado = estadoCliente(asset.estado)
+  const estadoBase = estadoCliente(asset.estado)
+  // Si solo faltaban insumos de marca ya cargados, no insistir al cliente.
+  const estado =
+    asset.estado === "pendiente_insumos" && !espera
+      ? {
+          ...estadoBase,
+          esTurnoCliente: false,
+          quienActua:
+            "Ya tenemos lo necesario de tu parte. Colombia Tech revisa y actualiza el estado.",
+        }
+      : estadoBase
   const titulo = `#${asset.numero} · ${asset.nombre}`
   const fechaLimite = formatFechaCorta(asset.fechaLimite)
-  const creada = formatDateTime(asset.creadaEl)
+  const estadoLimite = estadoFechaLimite(asset.fechaLimite, hoy)
+  const planeada = formatFechaCorta(fechaPlaneadaVisible(asset.fechaPlaneada, hoy))
   const entregada = formatDateTime(asset.entregadaEl)
-  const hayInstrucciones = Boolean(
-    asset.instrucciones || asset.formato || fechaLimite,
-  )
+  const hayInstrucciones = Boolean(asset.instrucciones || asset.formato)
 
   const handleFile = (file: File | undefined) => {
     if (!file) return
@@ -292,19 +432,29 @@ function AssetInsumosCard({ asset }: { asset: ContactoMediaAsset }) {
       return
     }
     startTransition(async () => {
-      const buffer = await file.arrayBuffer()
-      const bytes = new Uint8Array(buffer)
-      let binary = ""
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]!)
-      }
-      const bytesBase64 = btoa(binary)
-      const result = await subirInsumoMediaContacto({
+      const prepared = await prepararSubidaInsumoPieza({
         clienteId: asset.clienteId,
         assetEjecutadoId: asset.id,
         filename: file.name,
-        contentType: file.type || "application/octet-stream",
-        bytesBase64,
+      })
+      if (!prepared.data || prepared.error) {
+        setError(prepared.error ?? "No se pudo preparar la subida.")
+        return
+      }
+      const { error: uploadError } = await createClient()
+        .storage.from(MEDIA_INSUMOS_BUCKET)
+        .uploadToSignedUrl(prepared.data.path, prepared.data.token, file, {
+          contentType: file.type || undefined,
+        })
+      if (uploadError) {
+        setError(uploadError.message)
+        return
+      }
+      const result = await finalizarSubidaInsumoPieza({
+        clienteId: asset.clienteId,
+        assetEjecutadoId: asset.id,
+        storagePath: prepared.data.path,
+        filename: file.name,
       })
       if (result.error) {
         setError(result.error)
@@ -340,7 +490,7 @@ function AssetInsumosCard({ asset }: { asset: ContactoMediaAsset }) {
           <p className="text-xs text-muted-foreground">
             {n(asset.costoCreditos)} créditos{" "}
             {piezaEjecutada(asset.estado) ? "usados" : "asignados"}
-            {creada ? ` · planeada el ${creada}` : ""}
+            {planeada && !entregada ? ` · publicación prevista: ${planeada}` : ""}
             {entregada ? ` · entregada el ${entregada}` : ""}
           </p>
         </div>
@@ -354,6 +504,14 @@ function AssetInsumosCard({ asset }: { asset: ContactoMediaAsset }) {
         </div>
       </div>
 
+      {fechaLimite ? (
+        <FechaLimiteBanner
+          fecha={fechaLimite}
+          estado={estadoLimite}
+          espera={espera}
+        />
+      ) : null}
+
       <div className="mt-3 rounded-lg bg-muted/40 px-3 py-2 text-sm">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Qué necesitamos
@@ -361,18 +519,12 @@ function AssetInsumosCard({ asset }: { asset: ContactoMediaAsset }) {
         {hayInstrucciones ? (
           <div className="mt-1 space-y-1">
             {asset.instrucciones ? (
-              <InstruccionesList texto={asset.instrucciones} />
+              <ChecklistPieza items={items} clienteId={asset.clienteId} />
             ) : null}
             {asset.formato ? (
               <p>
                 <span className="text-muted-foreground">Formato: </span>
                 {asset.formato}
-              </p>
-            ) : null}
-            {fechaLimite ? (
-              <p>
-                <span className="text-muted-foreground">Enviar antes del </span>
-                <span className="font-medium">{fechaLimite}</span>
               </p>
             ) : null}
           </div>
@@ -385,7 +537,7 @@ function AssetInsumosCard({ asset }: { asset: ContactoMediaAsset }) {
 
       <div className="mt-3">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Tus archivos
+          Archivos de esta pieza
         </p>
         <ul className="mt-1 space-y-1 text-sm">
           {asset.insumos.length === 0 ? (
@@ -460,16 +612,283 @@ function AssetInsumosCard({ asset }: { asset: ContactoMediaAsset }) {
   )
 }
 
-function InstruccionesList({ texto }: { texto: string }) {
-  const items = parseChecklist(texto)
-  if (items.length <= 1) {
-    return <p className="whitespace-pre-line">{items[0] ?? texto}</p>
+function ChecklistPieza({
+  items,
+  clienteId,
+}: {
+  items: ItemChecklist[]
+  clienteId: string
+}) {
+  if (items.length === 0) return null
+  if (items.length === 1 && items[0]!.tipo === null) {
+    return <p className="whitespace-pre-line">{items[0]!.texto}</p>
   }
   return (
-    <ul className="list-disc space-y-0.5 pl-5">
-      {items.map((item, i) => (
-        <li key={i}>{item}</li>
-      ))}
+    <ul className="space-y-1">
+      {items.map((item, i) =>
+        item.tipo === null ? (
+          <li key={i} className="flex gap-2">
+            <span aria-hidden className="text-muted-foreground">•</span>
+            <span>{item.texto}</span>
+          </li>
+        ) : (
+          <li key={i} className="flex flex-wrap items-center gap-2">
+            <span aria-hidden className={item.cargado ? "text-emerald-700" : "text-muted-foreground"}>
+              {item.cargado ? "✓" : "•"}
+            </span>
+            <span>{item.texto}</span>
+            {item.cargado ? (
+              <>
+                <CargadoBadge />
+                <span className="text-xs text-muted-foreground">
+                  {formatDateTime(item.cargado.createdAt)} · de tus archivos de marca
+                </span>
+                <VerArchivoMarcaButton archivo={item.cargado} />
+              </>
+            ) : (
+              <SubirMarcaButton
+                clienteId={clienteId}
+                tipo={item.tipo}
+                label="Subir (sirve para todas tus piezas)"
+              />
+            )}
+          </li>
+        ),
+      )}
     </ul>
+  )
+}
+
+/** Mismo badge que eventos (portal/recursos/cargado-badge.tsx). */
+function CargadoBadge() {
+  return (
+    <span className="shrink-0 rounded-full border border-emerald-600/30 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
+      Cargado
+    </span>
+  )
+}
+
+function MarcaSection({
+  clienteId,
+  empresaNombre,
+  cargados,
+  tiposPedidos,
+}: {
+  clienteId: string
+  empresaNombre: string | null
+  cargados: Map<TipoMarca, ArchivoMarca>
+  tiposPedidos: Set<TipoMarca>
+}) {
+  const tipos = TIPOS_MARCA.filter(
+    (t) => tiposPedidos.has(t.tipo) || cargados.has(t.tipo),
+  )
+  if (tipos.length === 0) return null
+  const faltan = tipos.filter((t) => !cargados.has(t.tipo)).length
+
+  return (
+    <section className="rounded-xl border border-border bg-white p-6">
+      <h2 className="font-semibold">
+        Archivos de tu marca{empresaNombre ? ` · ${empresaNombre}` : ""}
+      </h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Súbelos una sola vez: los usamos en todas las piezas que los necesitan.
+        {faltan > 0
+          ? ` Te ${faltan === 1 ? "falta 1" : `faltan ${faltan}`}.`
+          : " Ya están todos cargados."}
+      </p>
+      <ul className="mt-4 divide-y divide-border">
+        {tipos.map((t) => {
+          const archivo = cargados.get(t.tipo) ?? null
+          return (
+            <li key={t.tipo} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{t.label}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {archivo
+                    ? `${archivo.nombreArchivo} · ${formatDateTime(archivo.createdAt) ?? ""}`
+                    : "Pendiente"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {archivo ? (
+                  <>
+                    <CargadoBadge />
+                    <VerArchivoMarcaButton archivo={archivo} />
+                  </>
+                ) : null}
+                <SubirMarcaButton
+                  clienteId={clienteId}
+                  tipo={t.tipo}
+                  label={archivo ? "Reemplazar" : "Subir"}
+                />
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+function VerArchivoMarcaButton({ archivo }: { archivo: ArchivoMarca }) {
+  const [pending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={pending}
+        aria-label={`Ver ${archivo.nombreArchivo}`}
+        onClick={() =>
+          startTransition(async () => {
+            setError(null)
+            const result = await firmarDescargaInsumoMarcaContacto({ archivoId: archivo.id })
+            if (result.error || !result.signedUrl) {
+              setError(result.error ?? "No se pudo abrir.")
+              return
+            }
+            window.open(result.signedUrl, "_blank", "noopener,noreferrer")
+          })
+        }
+      >
+        Ver archivo
+      </Button>
+      {error ? (
+        <span className="text-xs text-destructive" role="alert">
+          {error}
+        </span>
+      ) : null}
+    </>
+  )
+}
+
+function SubirMarcaButton({
+  clienteId,
+  tipo,
+  label,
+}: {
+  clienteId: string
+  tipo: TipoMarca
+  label: string
+}) {
+  const router = useRouter()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [pending, startTransition] = useTransition()
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const handleFile = (file: File | undefined) => {
+    if (!file) return
+    setMsg(null)
+    if (file.size > MAX_MB * 1024 * 1024) {
+      setMsg({ ok: false, text: `Pesa más de ${MAX_MB} MB.` })
+      return
+    }
+    startTransition(async () => {
+      const prepared = await prepararSubidaMarcaContacto({
+        clienteId,
+        tipo,
+        filename: file.name,
+      })
+      if (!prepared.data || prepared.error) {
+        setMsg({ ok: false, text: prepared.error ?? "No se pudo preparar la subida." })
+        return
+      }
+      const { error: uploadError } = await createClient()
+        .storage.from(MEDIA_INSUMOS_BUCKET)
+        .uploadToSignedUrl(prepared.data.path, prepared.data.token, file, {
+          contentType: file.type || undefined,
+        })
+      if (uploadError) {
+        setMsg({ ok: false, text: uploadError.message })
+        return
+      }
+      const result = await finalizarSubidaMarcaContacto({
+        clienteId,
+        tipo,
+        storagePath: prepared.data.path,
+        filename: file.name,
+      })
+      if (result.error) {
+        setMsg({ ok: false, text: result.error })
+        return
+      }
+      setMsg({
+        ok: true,
+        text: `Listo: ${labelTipoMarca(tipo)} cargado para todas tus piezas.`,
+      })
+      router.refresh()
+    })
+  }
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        className="sr-only"
+        aria-label={`Subir ${labelTipoMarca(tipo)}`}
+        onChange={(e) => {
+          handleFile(e.target.files?.[0])
+          e.target.value = ""
+        }}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={pending}
+        onClick={() => inputRef.current?.click()}
+      >
+        {pending ? "Subiendo…" : label}
+      </Button>
+      {msg ? (
+        <span
+          className={msg.ok ? "text-xs text-green-700" : "text-xs text-destructive"}
+          role={msg.ok ? "status" : "alert"}
+        >
+          {msg.text}
+        </span>
+      ) : null}
+    </>
+  )
+}
+
+function FechaLimiteBanner({
+  fecha,
+  estado,
+  espera,
+}: {
+  fecha: string
+  estado: EstadoFechaLimite | null
+  espera: boolean
+}) {
+  if (!espera) {
+    return (
+      <p className="mt-3 text-xs text-muted-foreground">
+        Fecha límite de tus archivos: {fecha}
+      </p>
+    )
+  }
+  if (estado === "vencida") {
+    return (
+      <div
+        className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+        role="status"
+      >
+        <p className="font-medium">La fecha para entregar tus archivos era el {fecha}.</p>
+        <p className="mt-0.5">Súbelos apenas puedas para no retrasar la pieza.</p>
+      </div>
+    )
+  }
+  return (
+    <div className="mt-3 rounded-lg border border-secondary/40 bg-secondary/10 px-3 py-2 text-sm">
+      <p className="font-medium">
+        {estado === "hoy"
+          ? `Entrega tus archivos hoy (${fecha}).`
+          : `Entrega tus archivos antes del ${fecha}.`}
+      </p>
+    </div>
   )
 }

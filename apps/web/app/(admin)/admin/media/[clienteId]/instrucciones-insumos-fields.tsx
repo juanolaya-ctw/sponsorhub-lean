@@ -12,12 +12,14 @@ export type InstruccionesInsumosValue = {
   instrucciones: string;
   formato: string;
   fechaLimite: string;
+  fechaPlaneada: string;
 };
 
 export const EMPTY_INSTRUCCIONES: InstruccionesInsumosValue = {
   instrucciones: "",
   formato: "",
   fechaLimite: "",
+  fechaPlaneada: "",
 };
 
 export function InstruccionesInsumosFields({
@@ -49,18 +51,9 @@ export function InstruccionesInsumosFields({
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <Label htmlFor={`${idPrefix}-formato`}>Formato aceptado</Label>
-          <Input
-            id={`${idPrefix}-formato`}
-            value={value.formato}
-            onChange={(e) => onChange({ ...value, formato: e.target.value })}
-            className="mt-1"
-            maxLength={FORMATO_MAX}
-            placeholder="Ej.: PDF, PNG o JPG"
-          />
-        </div>
-        <div>
-          <Label htmlFor={`${idPrefix}-fecha`}>Fecha límite</Label>
+          <Label htmlFor={`${idPrefix}-fecha`}>
+            Fecha límite de entrega de insumos
+          </Label>
           <Input
             id={`${idPrefix}-fecha`}
             type="date"
@@ -71,10 +64,38 @@ export function InstruccionesInsumosFields({
             className="mt-1"
           />
         </div>
+        <div>
+          <Label htmlFor={`${idPrefix}-planeada`}>
+            Fecha planeada de publicación
+          </Label>
+          <Input
+            id={`${idPrefix}-planeada`}
+            type="date"
+            value={value.fechaPlaneada}
+            onChange={(e) =>
+              onChange({ ...value, fechaPlaneada: e.target.value })
+            }
+            className="mt-1"
+          />
+        </div>
+      </div>
+      <div>
+        <div>
+          <Label htmlFor={`${idPrefix}-formato`}>Formato aceptado</Label>
+          <Input
+            id={`${idPrefix}-formato`}
+            value={value.formato}
+            onChange={(e) => onChange({ ...value, formato: e.target.value })}
+            className="mt-1"
+            maxLength={FORMATO_MAX}
+            placeholder="Ej.: PDF, PNG o JPG"
+          />
+        </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        El cliente ve esto en la pieza, justo encima del botón para subir
-        archivos. Todo es opcional.
+        El cliente ve la fecha límite destacada en la pieza y el checklist
+        encima del botón para subir archivos. La fecha planeada solo se le
+        muestra si es futura. Todo es opcional.
       </p>
     </div>
   );

@@ -4,7 +4,13 @@ import { getMediaContactoContext } from "@/lib/portal/media-contacto"
 import { getSponsorContext } from "@/lib/portal/sponsor"
 import { createAdminClient } from "@/lib/supabase/admin"
 import {
+  isMissingTableError,
+  isTipoMarca,
+  type ArchivoMarca,
+} from "@/lib/media/insumos-marca"
+import {
   formatPeriodoCiclo,
+  hoyBogota,
   instruccionesEfectivas,
   numerarPiezas,
   resumenSaldo,
@@ -73,7 +79,7 @@ async function PortalMediaContactoPage() {
       ? admin
           .from("media_assets_ejecutados")
           .select(
-            "id, billing_cycle_id, asset_id, costo_creditos, estado, created_at, entregado_at, insumos_notas, insumos_formato, insumos_fecha_limite",
+            "id, billing_cycle_id, asset_id, costo_creditos, estado, created_at, entregado_at, insumos_notas, insumos_formato, insumos_fecha_limite, fecha_planeada",
           )
           .in("billing_cycle_id", cycleIds)
       : Promise.resolve({ data: [], error: null }),
@@ -109,6 +115,35 @@ async function PortalMediaContactoPage() {
           .order("created_at", { ascending: true })
       : { data: [], error: null }
   if (insumosResult.error) throw new Error(insumosResult.error.message)
+
+  // Insumos de marca por empresa (reutilizables). Si la tabla aún no existe
+  // (migración 0027 sin aplicar), el portal sigue igual que antes.
+  const marcaResult = await admin
+    .from("media_cliente_insumos_marca")
+    .select("id, cliente_id, tipo, nombre_archivo, storage_path, created_at")
+    .in("cliente_id", media.clienteIds)
+    .order("created_at", { ascending: false })
+  let marcaReady = true
+  if (marcaResult.error) {
+    if (!isMissingTableError(marcaResult.error)) {
+      throw new Error(marcaResult.error.message)
+    }
+    marcaReady = false
+  }
+  const marcaPorCliente: Record<string, ArchivoMarca[]> = {}
+  for (const row of marcaReady ? (marcaResult.data ?? []) : []) {
+    const tipo = row.tipo as string
+    if (!isTipoMarca(tipo)) continue
+    const cid = row.cliente_id as string
+    ;(marcaPorCliente[cid] ??= []).push({
+      id: row.id as string,
+      clienteId: cid,
+      tipo,
+      nombreArchivo: row.nombre_archivo as string,
+      storagePath: row.storage_path as string,
+      createdAt: row.created_at as string,
+    })
+  }
 
   const assetIds = [
     ...new Set(assets.map((a) => a.asset_id as string).filter(Boolean)),
@@ -203,6 +238,7 @@ async function PortalMediaContactoPage() {
         ).texto,
         formato: (a.insumos_formato as string | null) ?? null,
         fechaLimite: (a.insumos_fecha_limite as string | null) ?? null,
+        fechaPlaneada: (a.fecha_planeada as string | null) ?? null,
         insumos: insumosByAsset.get(a.id as string) ?? [],
       })),
     }
@@ -213,6 +249,9 @@ async function PortalMediaContactoPage() {
       ready={media.ready}
       empresas={media.empresas}
       cycles={viewCycles}
+      marcaReady={marcaReady}
+      marcaPorCliente={marcaPorCliente}
+      hoy={hoyBogota()}
     />
   )
 }

@@ -54,6 +54,7 @@ export function InstruccionesInsumosDialog({
         instrucciones: value.instrucciones,
         formato: value.formato,
         fechaLimite: value.fechaLimite,
+        fechaPlaneada: value.fechaPlaneada,
       });
       if (result.error) setError(result.error);
       else {
@@ -67,14 +68,14 @@ export function InstruccionesInsumosDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button type="button" size="sm" variant={definidas ? "ghost" : "outline"}>
-          {definidas ? "Insumos" : "+ Insumos"}
+          {definidas ? "Insumos y fechas" : "+ Insumos y fechas"}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Insumos: {assetNombre}</DialogTitle>
+          <DialogTitle>{assetNombre}</DialogTitle>
           <DialogDescription>
-            Indica al cliente qué archivos necesitas para esta pieza.
+            Qué archivos necesitas del cliente y para cuándo.
           </DialogDescription>
         </DialogHeader>
         <InstruccionesInsumosFields

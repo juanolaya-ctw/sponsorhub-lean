@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   checklistToText,
+  estadoFechaLimite,
+  fechaPlaneadaVisible,
+  hoyBogota,
   estadoCliente,
   instruccionesEfectivas,
   normalizarNombreAsset,
@@ -150,5 +153,32 @@ describe("checklist de insumos", () => {
     expect(normalizarNombreAsset("Cápsula de video: producción en estudio Colombia Tech")).toBe(
       normalizarNombreAsset("Cápsula de video: producción en estudio colombia tech"),
     )
+  })
+})
+
+describe("fechas de la pieza", () => {
+  it("hoy en Bogotá (UTC-5)", () => {
+    expect(hoyBogota(new Date("2026-11-19T03:00:00Z"))).toBe("2026-11-18")
+    expect(hoyBogota(new Date("2026-11-19T06:00:00Z"))).toBe("2026-11-19")
+  })
+  it("estado de la fecha límite", () => {
+    const hoy = "2026-11-18"
+    expect(estadoFechaLimite(null, hoy)).toBeNull()
+    expect(estadoFechaLimite("2026-11-10", hoy)).toBe("vencida")
+    expect(estadoFechaLimite("2026-11-18", hoy)).toBe("hoy")
+    expect(estadoFechaLimite("2026-11-21", hoy)).toBe("pronto")
+    expect(estadoFechaLimite("2026-12-01", hoy)).toBe("a_tiempo")
+  })
+  it("fecha planeada pasada no se muestra", () => {
+    expect(fechaPlaneadaVisible("2026-11-09", "2026-11-18")).toBeNull()
+    expect(fechaPlaneadaVisible("2026-11-18", "2026-11-18")).toBe("2026-11-18")
+    expect(fechaPlaneadaVisible("2026-12-05", "2026-11-18")).toBe("2026-12-05")
+  })
+  it("normalize: fecha planeada solo si viene", () => {
+    const sin = normalizeInstruccionesInsumos({ instrucciones: "x" })
+    expect(sin.ok && "fecha_planeada" in sin.patch).toBe(false)
+    const con = normalizeInstruccionesInsumos({ fechaPlaneada: "" })
+    expect(con.ok && con.patch.fecha_planeada).toBeNull()
+    expect(normalizeInstruccionesInsumos({ fechaPlaneada: "2026-02-30" }).ok).toBe(false)
   })
 })

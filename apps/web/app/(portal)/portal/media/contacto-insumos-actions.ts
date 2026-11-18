@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { requireMediaContacto, getAuthContext } from "@/lib/auth/require-admin"
 import {
   MEDIA_EMPRESA_CONTACTOS_READY,
+  assertMediaInsumoPath,
   type AssetClienteOwnership,
   type MediaContactoLink,
 } from "@/lib/media/media-contacto-auth"
@@ -14,6 +15,12 @@ import {
   rejectMediaContactoPrivilege,
   type MediaInsumoRow,
 } from "@/lib/media/media-insumos"
+import {
+  assertMarcaPath,
+  authorizeDownloadMarcaContacto,
+  authorizeUploadMarcaContacto,
+  isMissingTableError,
+} from "@/lib/media/insumos-marca"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 export type ContactoInsumoActionState = {
@@ -67,28 +74,25 @@ const loadOwnership = async (
 }
 
 /**
- * Sube un insumo para una pieza. No cambia estado del asset
- * (diferencia vs aprobarAsset / actualizarEstadoAsset).
- * Reutiliza el patrón de entrega de archivos de beneficios, con path
- * media-cliente/{cliente}/{asset}/... y asserts de servidor.
+ * Insumo de una pieza: mismo flujo que eventos (prepare → uploadToSignedUrl
+ * desde el navegador → finalize), sin pasar el archivo por la server action
+ * (límite de 1 MB). No cambia el estado del asset (diferencia vs
+ * aprobarAsset / actualizarEstadoAsset). Path media-cliente/{cliente}/{asset}/...
+ * con asserts de servidor en ambos pasos.
  */
-export async function subirInsumoMediaContacto(input: {
+export async function prepararSubidaInsumoPieza(input: {
   clienteId: string
   assetEjecutadoId: string
   filename: string
-  contentType: string
-  bytesBase64: string
-}): Promise<ContactoInsumoActionState> {
+}): Promise<{ data: { path: string; token: string } | null; error: string | null }> {
   const { user } = await requireMediaContacto()
-
   if (!MEDIA_EMPRESA_CONTACTOS_READY) {
-    return { error: "Flujo de insumos Media no activado." }
+    return { data: null, error: "Flujo de insumos Media no activado." }
   }
 
   // Ignorar cualquier clienteId distinto al autorizado (no confiar en el browser)
   const links = await loadLinksForUser(user.id)
   const ownership = await loadOwnership(input.assetEjecutadoId)
-
   const plan = planUploadMediaInsumo({
     profile: { userId: user.id, rol: "media_contacto", activo: true },
     links,
@@ -98,36 +102,59 @@ export async function subirInsumoMediaContacto(input: {
     filename: input.filename,
     uuid: crypto.randomUUID(),
   })
-  if (!plan.ok) return { error: plan.error }
-
-  const binary = Buffer.from(input.bytesBase64, "base64")
-  if (binary.length === 0) return { error: "Archivo vacío." }
-  if (binary.length > 15 * 1024 * 1024) {
-    return { error: "Archivo demasiado grande (máx. 15 MB)." }
-  }
+  if (!plan.ok) return { data: null, error: plan.error }
 
   const admin = createAdminClient()
-  const { error: uploadError } = await admin.storage
+  const { data, error } = await admin.storage
     .from(MEDIA_INSUMOS_BUCKET)
-    .upload(plan.storagePath, binary, {
-      contentType: input.contentType || "application/octet-stream",
-      upsert: false,
-    })
+    .createSignedUploadUrl(plan.storagePath)
+  if (error) return { data: null, error: error.message }
+  return { data: { path: data.path, token: data.token }, error: null }
+}
 
-  if (uploadError) return { error: uploadError.message }
+export async function finalizarSubidaInsumoPieza(input: {
+  clienteId: string
+  assetEjecutadoId: string
+  storagePath: string
+  filename: string
+}): Promise<ContactoInsumoActionState> {
+  const { user } = await requireMediaContacto()
+  if (!MEDIA_EMPRESA_CONTACTOS_READY) {
+    return { error: "Flujo de insumos Media no activado." }
+  }
 
+  // Re-autoriza y exige el path canónico de esa empresa y pieza.
+  const links = await loadLinksForUser(user.id)
+  const ownership = await loadOwnership(input.assetEjecutadoId)
+  const plan = planUploadMediaInsumo({
+    profile: { userId: user.id, rol: "media_contacto", activo: true },
+    links,
+    ownership,
+    clienteId: input.clienteId,
+    assetEjecutadoId: input.assetEjecutadoId,
+    filename: input.filename,
+    uuid: "check",
+  })
+  if (!plan.ok) return { error: plan.error }
+  const pathCheck = assertMediaInsumoPath({
+    storagePath: input.storagePath,
+    clienteId: input.clienteId,
+    assetEjecutadoId: input.assetEjecutadoId,
+  })
+  if (!pathCheck.ok) return { error: pathCheck.error }
+
+  const admin = createAdminClient()
   const { error: insertError } = await admin
     .from("media_asset_insumos")
-    .insert(plan.insert)
-
+    .insert({ ...plan.insert, storage_path: input.storagePath })
   if (insertError) {
-    await admin.storage.from(MEDIA_INSUMOS_BUCKET).remove([plan.storagePath])
+    await admin.storage.from(MEDIA_INSUMOS_BUCKET).remove([input.storagePath])
     return { error: insertError.message }
   }
 
   // mustNotChangeAssetEstado: no UPDATE a media_assets_ejecutados.estado
   revalidatePath("/portal/media")
-  return { error: null, success: true, storagePath: plan.storagePath }
+  return { error: null, success: true, storagePath: input.storagePath }
 }
 
 export async function firmarDescargaInsumoMediaContacto(input: {
@@ -192,6 +219,124 @@ export async function firmarDescargaInsumoMediaContacto(input: {
     signedUrl: signed.signedUrl,
     storagePath: plan.storagePath,
   }
+}
+
+/**
+ * Insumos de marca (empresa): mismo flujo que eventos
+ * (prepare → uploadToSignedUrl desde el navegador → finalize), así el archivo
+ * no pasa por el límite de tamaño de las server actions.
+ * Queda "Cargado" en todas las piezas que lo piden. No cambia estados ni créditos.
+ */
+export async function prepararSubidaMarcaContacto(input: {
+  clienteId: string
+  tipo: string
+  filename: string
+}): Promise<{ data: { path: string; token: string } | null; error: string | null }> {
+  const { user } = await requireMediaContacto()
+  if (!MEDIA_EMPRESA_CONTACTOS_READY) {
+    return { data: null, error: "Flujo de insumos Media no activado." }
+  }
+  const links = await loadLinksForUser(user.id)
+  const plan = authorizeUploadMarcaContacto({
+    profile: { userId: user.id, rol: "media_contacto", activo: true },
+    links,
+    clienteId: input.clienteId,
+    tipo: input.tipo,
+    filename: input.filename,
+    uuid: crypto.randomUUID(),
+  })
+  if (!plan.ok) return { data: null, error: plan.error }
+
+  const admin = createAdminClient()
+  const { data, error } = await admin.storage
+    .from(MEDIA_INSUMOS_BUCKET)
+    .createSignedUploadUrl(plan.storagePath)
+  if (error) return { data: null, error: error.message }
+  return { data: { path: data.path, token: data.token }, error: null }
+}
+
+export async function finalizarSubidaMarcaContacto(input: {
+  clienteId: string
+  tipo: string
+  storagePath: string
+  filename: string
+}): Promise<ContactoInsumoActionState> {
+  const { user } = await requireMediaContacto()
+  if (!MEDIA_EMPRESA_CONTACTOS_READY) {
+    return { error: "Flujo de insumos Media no activado." }
+  }
+  const links = await loadLinksForUser(user.id)
+  // Re-autoriza (no confiar en el navegador) y exige el path canónico.
+  const plan = authorizeUploadMarcaContacto({
+    profile: { userId: user.id, rol: "media_contacto", activo: true },
+    links,
+    clienteId: input.clienteId,
+    tipo: input.tipo,
+    filename: input.filename,
+    uuid: "check",
+  })
+  if (!plan.ok) return { error: plan.error }
+  const pathCheck = assertMarcaPath({
+    storagePath: input.storagePath,
+    clienteId: input.clienteId,
+    tipo: input.tipo,
+  })
+  if (!pathCheck.ok) return { error: pathCheck.error }
+
+  const admin = createAdminClient()
+  const { error: insertError } = await admin
+    .from("media_cliente_insumos_marca")
+    .insert({ ...plan.insert, storage_path: input.storagePath })
+  if (insertError) {
+    await admin.storage.from(MEDIA_INSUMOS_BUCKET).remove([input.storagePath])
+    if (isMissingTableError(insertError)) {
+      return { error: "Los archivos de marca aún no están activos." }
+    }
+    return { error: insertError.message }
+  }
+
+  revalidatePath("/portal/media")
+  return { error: null, success: true, storagePath: input.storagePath }
+}
+
+export async function firmarDescargaInsumoMarcaContacto(input: {
+  archivoId: string
+}): Promise<ContactoInsumoActionState> {
+  const { user } = await requireMediaContacto()
+  if (!MEDIA_EMPRESA_CONTACTOS_READY) {
+    return { error: "Flujo de insumos Media no activado." }
+  }
+
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from("media_cliente_insumos_marca")
+    .select("id, cliente_id, nombre_archivo, storage_path")
+    .eq("id", input.archivoId)
+    .maybeSingle()
+  if (error) return { error: error.message }
+
+  const links = await loadLinksForUser(user.id)
+  const plan = authorizeDownloadMarcaContacto({
+    profile: { userId: user.id, rol: "media_contacto", activo: true },
+    links,
+    archivo: data
+      ? {
+          clienteId: data.cliente_id as string,
+          storagePath: data.storage_path as string,
+        }
+      : null,
+  })
+  if (!plan.ok) return { error: plan.error }
+
+  const { data: signed, error: signError } = await admin.storage
+    .from(MEDIA_INSUMOS_BUCKET)
+    .createSignedUrl(plan.storagePath, 60, {
+      download: (data?.nombre_archivo as string | undefined) ?? undefined,
+    })
+  if (signError || !signed?.signedUrl) {
+    return { error: signError?.message ?? "No se pudo firmar la URL." }
+  }
+  return { error: null, success: true, signedUrl: signed.signedUrl }
 }
 
 /** Cualquier intento de escalada desde el portal contacto. */

@@ -187,7 +187,7 @@ export function ActivarAssetDialog({
           {selected ? (
             <details className="rounded-lg border border-border px-3 py-2">
               <summary className="cursor-pointer text-sm font-medium">
-                Insumos que pedirás al cliente
+                Insumos y fechas para el cliente
                 {selected.insumosChecklist ? " (precargados del catálogo)" : " (opcional)"}
               </summary>
               <div className="mt-3">
