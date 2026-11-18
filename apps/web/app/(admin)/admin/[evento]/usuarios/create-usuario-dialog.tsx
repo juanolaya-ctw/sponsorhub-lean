@@ -42,14 +42,20 @@ function CreateUsuarioForm({
   eventoId,
   slug,
   sponsors,
+  initialSponsorId = "",
   onSuccess,
 }: {
   eventoId: string;
   slug: string;
   sponsors: SponsorOption[];
+  initialSponsorId?: string;
   onSuccess: () => void;
 }) {
-  const [sponsorId, setSponsorId] = useState("");
+  const preselected =
+    initialSponsorId && sponsors.some((s) => s.id === initialSponsorId)
+      ? initialSponsorId
+      : "";
+  const [sponsorId, setSponsorId] = useState(preselected);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [state, action] = useActionState(createUsuario, INITIAL);
@@ -187,27 +193,40 @@ export function CreateUsuarioDialog({
   eventoId,
   slug,
   sponsors,
+  initialSponsorId = "",
+  defaultOpen = false,
 }: {
   eventoId: string;
   slug: string;
   sponsors: SponsorOption[];
+  initialSponsorId?: string;
+  defaultOpen?: boolean;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [formKey, setFormKey] = useState(0);
   const handleSuccess = useCallback(() => {
     setOpen(false);
+    router.replace(`/admin/${slug}/usuarios`);
     router.refresh();
-  }, [router]);
+  }, [router, slug]);
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      if (next) {
+        setFormKey((k) => k + 1);
+        return;
+      }
+      if (defaultOpen) {
+        router.replace(`/admin/${slug}/usuarios`);
+      }
+    },
+    [defaultOpen, router, slug],
+  );
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) setFormKey((k) => k + 1);
-      }}
-    >
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button type="button">+ Crear usuario</Button>
       </DialogTrigger>
@@ -229,6 +248,7 @@ export function CreateUsuarioDialog({
             eventoId={eventoId}
             slug={slug}
             sponsors={sponsors}
+            initialSponsorId={initialSponsorId}
             onSuccess={handleSuccess}
           />
         )}

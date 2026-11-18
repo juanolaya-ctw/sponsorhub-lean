@@ -1,9 +1,14 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { LOGIN_PATH, parseRol, roleFromAccessToken } from "@/lib/auth/roles";
+import {
+  LOGIN_PATH,
+  parseRol,
+  roleFromAccessToken,
+  type UserRole,
+} from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
 
-const getAuthContext = cache(async () => {
+export const getAuthContext = cache(async () => {
   const supabase = await createClient();
   const {
     data: { session },
@@ -27,11 +32,11 @@ const getAuthContext = cache(async () => {
   return {
     supabase,
     user,
-    rol,
+    rol: rol as UserRole | null,
   };
 });
 
-async function requireRole(expected: "admin_ct" | "sponsor") {
+async function requireRole(expected: UserRole) {
   const context = await getAuthContext();
 
   if (!context.user || context.rol !== expected) {
@@ -51,4 +56,8 @@ export function requireAdmin() {
 
 export function requireSponsor() {
   return requireRole("sponsor");
+}
+
+export function requireMediaContacto() {
+  return requireRole("media_contacto");
 }

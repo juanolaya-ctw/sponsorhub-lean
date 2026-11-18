@@ -4,6 +4,11 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BrandLogo } from "@/components/BrandLogo";
 import {
+  AUTH_LINK_INVALID_MESSAGE,
+  parseAuthReturn,
+  stripAuthReturnFromUrl,
+} from "@/lib/auth/auth-return";
+import {
   DEACTIVATED_ACCOUNT_MESSAGE,
   DEACTIVATED_ACCOUNT_QUERY,
   homeForRole,
@@ -11,8 +16,36 @@ import {
   NO_ACCESS_QUERY,
   parseRol,
   roleFromAccessToken,
+  type UserRole,
 } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/client";
+
+const finishSignIn = async (
+  supabase: ReturnType<typeof createClient>,
+  accessToken: string | undefined,
+  user: { id: string; app_metadata?: unknown },
+): Promise<{ ok: true; rol: UserRole } | { ok: false; message: string }> => {
+  const rol = roleFromAccessToken(accessToken) ?? parseRol(user.app_metadata);
+  if (!rol) {
+    await supabase.auth.signOut();
+    return { ok: false, message: NO_ACCESS_MESSAGE };
+  }
+
+  if (rol === "sponsor") {
+    const { data: profile } = await supabase
+      .from("sponsor_usuarios")
+      .select("activo")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile && profile.activo === false) {
+      await supabase.auth.signOut();
+      return { ok: false, message: DEACTIVATED_ACCOUNT_MESSAGE };
+    }
+  }
+
+  return { ok: true, rol };
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,14 +55,83 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const errorParam = params.get("error");
-    if (errorParam === NO_ACCESS_QUERY) {
-      setError(NO_ACCESS_MESSAGE);
-    } else if (errorParam === DEACTIVATED_ACCOUNT_QUERY) {
-      setError(DEACTIVATED_ACCOUNT_MESSAGE);
-    }
-  }, []);
+    let cancelled = false;
+
+    const handleAuthReturn = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const errorParam = params.get("error");
+      if (errorParam === NO_ACCESS_QUERY) {
+        setError(NO_ACCESS_MESSAGE);
+      } else if (errorParam === DEACTIVATED_ACCOUNT_QUERY) {
+        setError(DEACTIVATED_ACCOUNT_MESSAGE);
+      }
+
+      const authReturn = parseAuthReturn(window.location.href);
+      if (authReturn.kind === "none") return;
+
+      if (authReturn.kind === "error") {
+        window.history.replaceState(
+          null,
+          "",
+          stripAuthReturnFromUrl(window.location.href),
+        );
+        if (!cancelled) setError(authReturn.errorMessage);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+      const supabase = createClient();
+
+      const sessionResult =
+        authReturn.kind === "hash_tokens"
+          ? await supabase.auth.setSession({
+              access_token: authReturn.accessToken,
+              refresh_token: authReturn.refreshToken,
+            })
+          : await supabase.auth.exchangeCodeForSession(authReturn.code);
+
+      window.history.replaceState(
+        null,
+        "",
+        stripAuthReturnFromUrl(window.location.href),
+      );
+
+      if (cancelled) return;
+
+      if (sessionResult.error || !sessionResult.data.session?.user) {
+        setLoading(false);
+        setError(AUTH_LINK_INVALID_MESSAGE);
+        return;
+      }
+
+      const finished = await finishSignIn(
+        supabase,
+        sessionResult.data.session.access_token,
+        sessionResult.data.session.user,
+      );
+
+      if (cancelled) return;
+
+      if (!finished.ok) {
+        setLoading(false);
+        setError(finished.message);
+        return;
+      }
+
+      // Solo destinos internos por rol (ROLE_HOME); nunca redirect externo.
+      router.replace(homeForRole(finished.rol));
+      router.refresh();
+    };
+
+    void handleAuthReturn();
+    // Si ya estamos en /login y cambia el hash (enlace), reprocesar.
+    window.addEventListener("hashchange", handleAuthReturn);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("hashchange", handleAuthReturn);
+    };
+  }, [router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,32 +150,19 @@ export default function LoginPage() {
       return;
     }
 
-    const rol =
-      roleFromAccessToken(data.session?.access_token) ??
-      parseRol(data.user.app_metadata);
-    if (!rol) {
-      await supabase.auth.signOut();
+    const finished = await finishSignIn(
+      supabase,
+      data.session?.access_token,
+      data.user,
+    );
+
+    if (!finished.ok) {
       setLoading(false);
-      setError(NO_ACCESS_MESSAGE);
+      setError(finished.message);
       return;
     }
 
-    if (rol === "sponsor") {
-      const { data: profile } = await supabase
-        .from("sponsor_usuarios")
-        .select("activo")
-        .eq("id", data.user.id)
-        .maybeSingle();
-
-      if (profile && profile.activo === false) {
-        await supabase.auth.signOut();
-        setLoading(false);
-        setError(DEACTIVATED_ACCOUNT_MESSAGE);
-        return;
-      }
-    }
-
-    router.replace(homeForRole(rol));
+    router.replace(homeForRole(finished.rol));
     router.refresh();
   }
 

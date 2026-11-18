@@ -3,6 +3,7 @@ import {
   homeForRole,
   isAdminPath,
   isLoginPath,
+  isMediaContactoPortalPath,
   isPortalPath,
   LOGIN_PATH,
   loginWithNoAccessPath,
@@ -72,7 +73,19 @@ export async function middleware(request: NextRequest) {
     return redirectTo(home);
   }
 
-  if (isPortalPath(pathname) && rol !== "sponsor") {
+  if (isPortalPath(pathname)) {
+    if (rol === "sponsor") {
+      return supabaseResponse;
+    }
+    if (rol === "media_contacto") {
+      if (pathname === "/portal" || pathname === "/portal/") {
+        return redirectTo("/portal/media");
+      }
+      if (!isMediaContactoPortalPath(pathname)) {
+        return redirectTo("/portal/media");
+      }
+      return supabaseResponse;
+    }
     return redirectTo(home);
   }
 

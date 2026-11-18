@@ -1,13 +1,19 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import {
+  SPONSOR_NOT_IN_EVENTO,
+  messageIfSponsorOutsideEvento,
+} from "@/lib/admin/create-usuario-guards";
+import {
+  runCreateUsuario,
+  type CreateUsuarioAdmin,
+  type UsuarioActionState,
+} from "@/lib/admin/create-usuario-core";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export type UsuarioActionState = {
-  error: string | null;
-  success?: boolean;
-};
+export type { UsuarioActionState };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -27,14 +33,16 @@ async function assertSponsorInEvento(
 ): Promise<string | null> {
   const { data, error } = await admin
     .from("sponsors")
-    .select("id")
+    .select("id, evento_id")
     .eq("id", sponsorId)
-    .eq("evento_id", eventoId)
     .maybeSingle();
 
   if (error) return error.message;
-  if (!data) return "El sponsor no pertenece a este evento.";
-  return null;
+  if (!data) return SPONSOR_NOT_IN_EVENTO;
+  return messageIfSponsorOutsideEvento(
+    data.evento_id as string | null,
+    eventoId,
+  );
 }
 
 async function assertUsuarioSponsorInEvento(
@@ -59,71 +67,17 @@ export async function createUsuario(
   _prev: UsuarioActionState,
   formData: FormData,
 ): Promise<UsuarioActionState> {
-  await requireAdmin();
-  const admin = createAdminClient();
-
-  const slug = String(formData.get("slug") ?? "").trim();
-  const eventoId = String(formData.get("evento_id") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
-  const password = String(formData.get("password") ?? "");
-  const passwordConfirm = String(formData.get("password_confirm") ?? "");
-  const sponsorId = String(formData.get("sponsor_id") ?? "").trim();
-  const nombre = optionalText(formData.get("nombre"));
-  const cargo = optionalText(formData.get("cargo"));
-  const telefono = optionalText(formData.get("telefono"));
-  const notas = optionalText(formData.get("notas"));
-
-  if (!slug || !eventoId) {
-    return { error: "Falta el evento." };
-  }
-  if (!email || !EMAIL_RE.test(email)) {
-    return { error: "El email no es válido." };
-  }
-  if (password.length < 8) {
-    return { error: "La contraseña debe tener al menos 8 caracteres." };
-  }
-  if (password !== passwordConfirm) {
-    return { error: "Las contraseñas no coinciden." };
-  }
-  if (!sponsorId) {
-    return { error: "Debes vincular un sponsor." };
-  }
-
-  const sponsorError = await assertSponsorInEvento(admin, sponsorId, eventoId);
-  if (sponsorError) return { error: sponsorError };
-
-  const { data: authData, error: authError } =
-    await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    });
-
-  if (authError || !authData.user) {
-    return {
-      error: authError?.message ?? "No se pudo crear el usuario en Auth.",
-    };
-  }
-
-  const userId = authData.user.id;
-  const { error: insertError } = await admin.from("sponsor_usuarios").insert({
-    id: userId,
-    sponsor_id: sponsorId,
-    rol: "sponsor",
-    activo: true,
-    nombre,
-    cargo,
-    telefono,
-    notas,
-  });
-
-  if (insertError) {
-    await admin.auth.admin.deleteUser(userId);
-    return { error: insertError.message };
-  }
-
-  revalidateUsuarios(slug);
-  return { error: null, success: true };
+  return runCreateUsuario(
+    {
+      requireAdmin: async () => {
+        const ctx = await requireAdmin();
+        return { rol: ctx.rol };
+      },
+      getAdmin: () => createAdminClient() as unknown as CreateUsuarioAdmin,
+      revalidateUsuarios,
+    },
+    formData,
+  );
 }
 
 export async function updateUsuario(

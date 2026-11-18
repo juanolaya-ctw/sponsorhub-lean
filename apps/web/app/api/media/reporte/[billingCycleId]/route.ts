@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { MEDIA_EMPRESA_CONTACTOS_READY } from "@/lib/media/media-contacto-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -21,7 +22,9 @@ export async function GET(
 
   const { data: cycle, error: cycleError } = await admin
     .from("media_billing_cycles")
-    .select("id, sponsor_id, plan_id, periodo, creditos_asignados, creditos_rollover")
+    .select(
+      "id, sponsor_id, cliente_id, plan_id, periodo, creditos_asignados, creditos_rollover",
+    )
     .eq("id", billingCycleId)
     .maybeSingle();
 
@@ -38,9 +41,26 @@ export async function GET(
   const isAdmin = profile?.rol === "admin_ct";
   const isSponsorOwner =
     profile?.rol === "sponsor" &&
+    cycle.sponsor_id != null &&
     (profile.sponsor_id as string) === (cycle.sponsor_id as string);
 
-  if (!isAdmin && !isSponsorOwner) {
+  let isMediaContactoOwner = false;
+  if (
+    MEDIA_EMPRESA_CONTACTOS_READY &&
+    profile?.rol === "media_contacto" &&
+    cycle.cliente_id
+  ) {
+    const { data: link } = await admin
+      .from("media_cliente_contactos")
+      .select("id")
+      .eq("auth_user_id", user.id)
+      .eq("cliente_id", cycle.cliente_id as string)
+      .eq("activo", true)
+      .maybeSingle();
+    isMediaContactoOwner = Boolean(link);
+  }
+
+  if (!isAdmin && !isSponsorOwner && !isMediaContactoOwner) {
     return new NextResponse("No autorizado", { status: 403 });
   }
 

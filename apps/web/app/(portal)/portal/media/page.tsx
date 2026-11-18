@@ -1,16 +1,22 @@
-import { redirect } from "next/navigation";
-import { requireSponsor } from "@/lib/auth/require-admin";
-import { getSponsorContext } from "@/lib/portal/sponsor";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { AprobarAssetButton } from "./aprobar-asset-button";
+import { redirect } from "next/navigation"
+import { getAuthContext, requireSponsor } from "@/lib/auth/require-admin"
+import { getMediaContactoContext } from "@/lib/portal/media-contacto"
+import { getSponsorContext } from "@/lib/portal/sponsor"
+import { createAdminClient } from "@/lib/supabase/admin"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { AprobarAssetButton } from "./aprobar-asset-button"
+import {
+  ContactoMediaView,
+  type ContactoMediaCycle,
+} from "./contacto-media-view"
 
 type AssetEstado =
   | "pendiente_insumos"
   | "insumos_recibidos"
   | "en_ejecucion"
   | "entregado"
-  | "aprobado";
+  | "aprobado"
 
 const ESTADO_LABELS: Record<AssetEstado, string> = {
   pendiente_insumos: "Pendiente insumos",
@@ -18,26 +24,143 @@ const ESTADO_LABELS: Record<AssetEstado, string> = {
   en_ejecucion: "En ejecución",
   entregado: "Entregado",
   aprobado: "Aprobado",
-};
+}
 
 function formatPeriodo(periodo: string) {
-  const d = new Date(`${periodo}T00:00:00`);
-  return d.toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+  const d = new Date(`${periodo}T00:00:00`)
+  return d.toLocaleDateString("es-CO", { month: "long", year: "numeric" })
 }
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return null;
-  return new Date(value).toLocaleDateString("es-CO", { dateStyle: "medium" });
+  if (!value) return null
+  return new Date(value).toLocaleDateString("es-CO", { dateStyle: "medium" })
 }
 
-export default async function PortalMediaPage() {
+async function PortalMediaContactoPage() {
+  const media = await getMediaContactoContext()
+  if (!media.ready || media.clienteIds.length === 0) {
+    return (
+      <ContactoMediaView ready={media.ready} empresas={media.empresas} cycles={[]} />
+    )
+  }
+
+  const admin = createAdminClient()
+  const cyclesResult = await admin
+    .from("media_billing_cycles")
+    .select(
+      "id, cliente_id, plan_id, periodo, creditos_asignados, creditos_extra, creditos_rollover",
+    )
+    .in("cliente_id", media.clienteIds)
+    .order("periodo", { ascending: false })
+    .limit(12)
+
+  if (cyclesResult.error) throw new Error(cyclesResult.error.message)
+  const cycles = cyclesResult.data ?? []
+  const cycleIds = cycles.map((c) => c.id as string)
+
+  const assetsResult =
+    cycleIds.length > 0
+      ? await admin
+          .from("media_assets_ejecutados")
+          .select("id, billing_cycle_id, asset_id, costo_creditos, estado")
+          .in("billing_cycle_id", cycleIds)
+      : { data: [], error: null }
+  if (assetsResult.error) throw new Error(assetsResult.error.message)
+  const assets = assetsResult.data ?? []
+
+  const insumosResult =
+    assets.length > 0
+      ? await admin
+          .from("media_asset_insumos")
+          .select("id, asset_ejecutado_id, nombre_archivo, created_at, cliente_id")
+          .in(
+            "asset_ejecutado_id",
+            assets.map((a) => a.id as string),
+          )
+          .in("cliente_id", media.clienteIds)
+      : { data: [], error: null }
+  if (insumosResult.error) throw new Error(insumosResult.error.message)
+
+  const assetIds = [
+    ...new Set(assets.map((a) => a.asset_id as string).filter(Boolean)),
+  ]
+  const catalogResult =
+    assetIds.length > 0
+      ? await admin
+          .from("media_assets_catalogo")
+          .select("id, nombre")
+          .in("id", assetIds)
+      : { data: [], error: null }
+  const catalogMap = new Map(
+    (catalogResult.data ?? []).map((a) => [a.id as string, a.nombre as string]),
+  )
+
+  const insumosByAsset = new Map<
+    string,
+    { id: string; nombreArchivo: string; createdAt: string }[]
+  >()
+  for (const row of insumosResult.data ?? []) {
+    const aid = row.asset_ejecutado_id as string
+    const list = insumosByAsset.get(aid) ?? []
+    list.push({
+      id: row.id as string,
+      nombreArchivo: row.nombre_archivo as string,
+      createdAt: row.created_at as string,
+    })
+    insumosByAsset.set(aid, list)
+  }
+
+  const viewCycles: ContactoMediaCycle[] = cycles.map((c) => {
+    const cid = c.id as string
+    const clienteId = c.cliente_id as string
+    const cycleAssets = assets.filter(
+      (a) => (a.billing_cycle_id as string) === cid,
+    )
+    const usados = cycleAssets
+      .filter((a) => a.estado !== "cancelado")
+      .reduce((s, a) => s + (Number(a.costo_creditos) || 0), 0)
+    const asignados = c.creditos_asignados as number
+    const extra = (c.creditos_extra as number | null) ?? 0
+    const rollover = c.creditos_rollover as number
+    const creditosTotales = asignados + extra + rollover
+    const label = formatPeriodo(c.periodo as string)
+
+    return {
+      id: cid,
+      label,
+      asignados,
+      creditosTotales,
+      usados,
+      disponibles: creditosTotales - usados,
+      assets: cycleAssets.map((a) => ({
+        id: a.id as string,
+        nombre: catalogMap.get(a.asset_id as string) ?? "Pieza",
+        estado: (a.estado as AssetEstado) ?? "pendiente_insumos",
+        costoCreditos: a.costo_creditos as number,
+        clienteId,
+        insumos: insumosByAsset.get(a.id as string) ?? [],
+      })),
+    }
+  })
+
+  return (
+    <ContactoMediaView
+      ready={media.ready}
+      empresas={media.empresas}
+      cycles={viewCycles}
+    />
+  )
+}
+
+
+async function PortalMediaSponsorPage() {
   const [{ supabase }, sponsor] = await Promise.all([
     requireSponsor(),
     getSponsorContext(),
-  ]);
+  ])
 
   if (!sponsor.ctMedia) {
-    redirect("/portal/dashboard");
+    redirect("/portal/dashboard")
   }
 
   const cyclesResult = await supabase
@@ -45,15 +168,15 @@ export default async function PortalMediaPage() {
     .select("id, plan_id, periodo, creditos_asignados, creditos_rollover")
     .eq("sponsor_id", sponsor.sponsorId)
     .order("periodo", { ascending: false })
-    .limit(6);
+    .limit(6)
 
-  if (cyclesResult.error) throw new Error(cyclesResult.error.message);
+  if (cyclesResult.error) throw new Error(cyclesResult.error.message)
 
-  const cycles = cyclesResult.data ?? [];
-  const currentCycle = cycles[0] ?? null;
-  const currentCycleId = currentCycle?.id as string | undefined;
+  const cycles = cyclesResult.data ?? []
+  const currentCycle = cycles[0] ?? null
+  const currentCycleId = currentCycle?.id as string | undefined
 
-  const allCycleIds = cycles.map((c) => c.id as string);
+  const allCycleIds = cycles.map((c) => c.id as string)
   const assetsResult =
     allCycleIds.length > 0
       ? await supabase
@@ -63,14 +186,14 @@ export default async function PortalMediaPage() {
           )
           .in("billing_cycle_id", allCycleIds)
           .order("created_at", { ascending: false })
-      : { data: [], error: null };
+      : { data: [], error: null }
 
-  if (assetsResult.error) throw new Error(assetsResult.error.message);
-  const allAssets = assetsResult.data ?? [];
+  if (assetsResult.error) throw new Error(assetsResult.error.message)
+  const allAssets = assetsResult.data ?? []
 
   // Fetch plan and catalog names via separate queries (no FK joins)
-  const planIds = [...new Set(cycles.map((c) => c.plan_id as string).filter(Boolean))];
-  const assetIds = [...new Set(allAssets.map((a) => a.asset_id as string).filter(Boolean))];
+  const planIds = [...new Set(cycles.map((c) => c.plan_id as string).filter(Boolean))]
+  const assetIds = [...new Set(allAssets.map((a) => a.asset_id as string).filter(Boolean))]
 
   const [planesResult, catalogResult] = await Promise.all([
     planIds.length > 0
@@ -79,44 +202,44 @@ export default async function PortalMediaPage() {
     assetIds.length > 0
       ? supabase.from("media_assets_catalogo").select("id, nombre").in("id", assetIds)
       : { data: [] as { id: unknown; nombre: unknown }[], error: null },
-  ]);
+  ])
 
   const planMap = new Map(
     (planesResult.data ?? []).map((p) => [p.id as string, p.nombre as string]),
-  );
+  )
   const catalogMap = new Map(
     (catalogResult.data ?? []).map((a) => [a.id as string, a.nombre as string]),
-  );
+  )
 
-  const usadosPorCiclo = new Map<string, number>();
+  const usadosPorCiclo = new Map<string, number>()
   for (const a of allAssets) {
-    const cid = a.billing_cycle_id as string;
+    const cid = a.billing_cycle_id as string
     usadosPorCiclo.set(
       cid,
       (usadosPorCiclo.get(cid) ?? 0) + (a.costo_creditos as number),
-    );
+    )
   }
 
   const currentAssets = allAssets.filter(
     (a) => (a.billing_cycle_id as string) === currentCycleId,
-  );
+  )
 
   const currentAsignados = currentCycle
     ? (currentCycle.creditos_asignados as number)
-    : 0;
+    : 0
   const currentRollover = currentCycle
     ? (currentCycle.creditos_rollover as number)
-    : 0;
+    : 0
   const currentUsados = currentCycleId
     ? (usadosPorCiclo.get(currentCycleId) ?? 0)
-    : 0;
-  const currentDisponibles = currentAsignados + currentRollover - currentUsados;
+    : 0
+  const currentDisponibles = currentAsignados + currentRollover - currentUsados
   const pct = Math.round(
     (currentUsados / (currentAsignados + currentRollover || 1)) * 100,
-  );
+  )
   const reporteUrl = currentCycleId
     ? `/api/media/reporte/${currentCycleId}`
-    : null;
+    : null
 
   return (
     <main className="mx-auto max-w-4xl space-y-10 px-6 py-10">
@@ -179,11 +302,11 @@ export default async function PortalMediaPage() {
               <div className="mt-4 space-y-3">
                 {currentAssets.map((a) => {
                   const estado =
-                    (a.estado as AssetEstado) ?? "pendiente_insumos";
-                  const nombre = catalogMap.get(a.asset_id as string) ?? "Asset";
+                    (a.estado as AssetEstado) ?? "pendiente_insumos"
+                  const nombre = catalogMap.get(a.asset_id as string) ?? "Asset"
                   const deliveredAt = formatDate(
                     a.entregado_at as string | null,
-                  );
+                  )
                   return (
                     <div
                       key={a.id as string}
@@ -214,7 +337,7 @@ export default async function PortalMediaPage() {
                         ) : null}
                       </div>
                     </div>
-                  );
+                  )
                 })}
               </div>
             </section>
@@ -225,12 +348,12 @@ export default async function PortalMediaPage() {
             <h2 className="text-xl font-semibold">Historial de créditos</h2>
             <div className="mt-4 space-y-2">
               {cycles.map((c, idx) => {
-                const cid = c.id as string;
-                const asignados = c.creditos_asignados as number;
-                const rollover = c.creditos_rollover as number;
-                const usados = usadosPorCiclo.get(cid) ?? 0;
-                const disponibles = asignados + rollover - usados;
-                const planNombre = planMap.get(c.plan_id as string) ?? "—";
+                const cid = c.id as string
+                const asignados = c.creditos_asignados as number
+                const rollover = c.creditos_rollover as number
+                const usados = usadosPorCiclo.get(cid) ?? 0
+                const disponibles = asignados + rollover - usados
+                const planNombre = planMap.get(c.plan_id as string) ?? "—"
                 return (
                   <div
                     key={cid}
@@ -256,12 +379,21 @@ export default async function PortalMediaPage() {
                       <Badge variant="outline">Cerrado</Badge>
                     )}
                   </div>
-                );
+                )
               })}
             </div>
           </section>
         </>
       )}
     </main>
-  );
+  )
+}
+
+
+export default async function PortalMediaPage() {
+  const auth = await getAuthContext()
+  if (auth.rol === "media_contacto") {
+    return PortalMediaContactoPage()
+  }
+  return PortalMediaSponsorPage()
 }

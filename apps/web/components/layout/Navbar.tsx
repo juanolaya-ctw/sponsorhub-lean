@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 const ROLE_LABEL: Record<UserRole, string> = {
   admin_ct: "ColombiaTech · Admin",
   sponsor: "Portal del sponsor",
+  media_contacto: "Portal Media · Contacto",
 };
 
 function iniciales(nombre: string): string {

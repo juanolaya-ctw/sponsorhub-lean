@@ -7,6 +7,8 @@ import {
   DEACTIVATED_ACCOUNT_QUERY,
   LOGIN_PATH,
 } from "@/lib/auth/roles";
+import { getAuthContext } from "@/lib/auth/require-admin";
+import { getMediaContactoContext } from "@/lib/portal/media-contacto";
 import { getSponsorContext } from "@/lib/portal/sponsor";
 import { createClient } from "@/lib/supabase/server";
 
@@ -27,10 +29,39 @@ export default async function PortalLayout({
       .maybeSingle();
 
     if (deactivated) {
-      // Cerrar sesión evita el loop middleware: login → portal → login
       await supabase.auth.signOut();
       redirect(`${LOGIN_PATH}?error=${DEACTIVATED_ACCOUNT_QUERY}`);
     }
+  }
+
+  const auth = await getAuthContext();
+
+  if (auth.rol === "media_contacto") {
+    const media = await getMediaContactoContext();
+    const label =
+      media.empresas.map((e) => e.nombre).join(" · ") || "Media contacto";
+
+    return (
+      <div className="min-h-screen bg-background">
+        {user ? (
+          <PostHogIdentify
+            userId={user.id}
+            email={user.email ?? null}
+            rol="media_contacto"
+          />
+        ) : null}
+        <header className="sticky top-0 z-50 flex h-14 items-center justify-between border-b border-border bg-white px-4">
+          <Link href="/portal/media">
+            <BrandLogo />
+          </Link>
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium">{label}</span>
+            <SignOutButton />
+          </div>
+        </header>
+        {children}
+      </div>
+    );
   }
 
   const sponsor = await getSponsorContext();

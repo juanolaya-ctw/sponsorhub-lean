@@ -1,9 +1,10 @@
-export const USER_ROLES = ["admin_ct", "sponsor"] as const;
+export const USER_ROLES = ["admin_ct", "sponsor", "media_contacto"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 export const ROLE_HOME = {
   admin_ct: "/admin/selector-evento",
   sponsor: "/portal/dashboard",
+  media_contacto: "/portal/media",
 } as const satisfies Record<UserRole, string>;
 
 export const LOGIN_PATH = "/login";
@@ -15,7 +16,9 @@ export const DEACTIVATED_ACCOUNT_MESSAGE =
   "Tu cuenta ha sido desactivada. Contacta al equipo de Colombia Tech.";
 
 export function isUserRole(value: unknown): value is UserRole {
-  return value === "admin_ct" || value === "sponsor";
+  return (
+    value === "admin_ct" || value === "sponsor" || value === "media_contacto"
+  );
 }
 
 export function homeForRole(rol: UserRole): string {
@@ -68,4 +71,13 @@ export function isAdminPath(pathname: string): boolean {
 
 export function isLoginPath(pathname: string): boolean {
   return pathname === LOGIN_PATH || pathname.startsWith(`${LOGIN_PATH}/`);
+}
+
+/** Rutas del portal permitidas para media_contacto (no beneficios de evento). */
+export function isMediaContactoPortalPath(pathname: string): boolean {
+  return (
+    pathname === "/portal/media" ||
+    pathname.startsWith("/portal/media/") ||
+    pathname.startsWith("/api/media/")
+  );
 }

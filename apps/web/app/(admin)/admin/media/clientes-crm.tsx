@@ -143,7 +143,7 @@ export function ClientesCrm({ clientes }: { clientes: ClienteRow[] }) {
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
                       <Button asChild size="sm" variant="outline">
-                        <Link href={`/admin/media/${c.id}`}>Ver perfil</Link>
+                        <Link href={`/admin/media/${c.id}`}>Ver plan</Link>
                       </Button>
                       <EliminarClienteButton
                         clienteId={c.id}

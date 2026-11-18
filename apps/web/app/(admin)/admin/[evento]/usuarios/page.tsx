@@ -24,12 +24,17 @@ function formatLastSignIn(value: string | null | undefined): string | null {
 
 export default async function UsuariosPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ evento: string }>;
+  searchParams: Promise<{ crear?: string; sponsorId?: string }>;
 }) {
   const { evento: slug } = await params;
+  const query = await searchParams;
   const { evento } = await getEventoBySlug(slug);
   const admin = createAdminClient();
+  const openFromPanel = query.crear === "1";
+  const initialSponsorId = (query.sponsorId ?? "").trim();
 
   const [{ data: rows, error: rowsError }, { data: sponsorsData, error: sponsorsError }] =
     await Promise.all([
@@ -95,6 +100,8 @@ export default async function UsuariosPage({
           eventoId={evento.id}
           slug={evento.slug}
           sponsors={sponsors}
+          initialSponsorId={initialSponsorId}
+          defaultOpen={openFromPanel}
         />
       </div>
 

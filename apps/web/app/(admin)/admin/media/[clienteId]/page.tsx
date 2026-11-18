@@ -24,6 +24,15 @@ import { EditarCreditosDialog } from "./editar-creditos-dialog";
 import { EliminarAssetButton } from "./eliminar-asset-button";
 import { ClienteMediaTabs } from "./cliente-media-tabs";
 import { TopupsHistorial, type TopupRow } from "./topups-historial";
+import { EmpresaCrmHeading } from "../empresa-crm-heading";
+import { ContactosAdminPanel } from "../contactos-admin-panel";
+import {
+  MEDIA_CONTACTOS_TABLE_READY,
+  contactosFromTableRows,
+  toEmpresaCrmView,
+  type ContactoDraft,
+  type ContactoTableRow,
+} from "@/lib/media/empresa-contactos";
 
 type AssetEstado =
   | "pendiente_insumos"
@@ -99,6 +108,37 @@ export default async function ClienteMediaPage({
   const cliente = clienteResult.data;
   const cycles = cyclesResult.data ?? [];
   const currentCycle = cycles[0] ?? null;
+
+  let initialContactos: ContactoDraft[] = toEmpresaCrmView({
+    id: cliente.id as string,
+    nombre: cliente.nombre as string,
+    empresa: (cliente.empresa as string | null) ?? null,
+    email_contacto: (cliente.email_contacto as string | null) ?? null,
+    telefono: (cliente.telefono as string | null) ?? null,
+  }).contactos;
+
+  if (MEDIA_CONTACTOS_TABLE_READY) {
+    const { data: contactoRows, error: contactosError } = await admin
+      .from("media_cliente_contactos")
+      .select(
+        "id, cliente_id, nombre, email, telefono, cargo, auth_user_id, activo",
+      )
+      .eq("cliente_id", clienteId)
+      .eq("activo", true)
+      .order("created_at");
+    if (contactosError) throw new Error(contactosError.message);
+    initialContactos = contactosFromTableRows(
+      (contactoRows ?? []) as ContactoTableRow[],
+    );
+  }
+
+  const empresaView = toEmpresaCrmView({
+    id: cliente.id as string,
+    nombre: cliente.nombre as string,
+    empresa: (cliente.empresa as string | null) ?? null,
+    email_contacto: (cliente.email_contacto as string | null) ?? null,
+    telefono: (cliente.telefono as string | null) ?? null,
+  });
 
   const planMap = new Map(
     (planesResult.data ?? []).map((p) => [
@@ -428,14 +468,15 @@ export default async function ClienteMediaPage({
         </Link>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold">
-              {cliente.nombre as string}
-            </h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {(cliente.empresa as string | null) ?? ""}
-              {cliente.empresa && cliente.email_contacto ? " · " : ""}
-              {(cliente.email_contacto as string | null) ?? ""}
-            </p>
+            <EmpresaCrmHeading
+              cliente={{
+                id: cliente.id as string,
+                nombre: cliente.nombre as string,
+                empresa: (cliente.empresa as string | null) ?? null,
+                email_contacto: (cliente.email_contacto as string | null) ?? null,
+                telefono: (cliente.telefono as string | null) ?? null,
+              }}
+            />
             <p className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               {currentPlan?.nombre ?? "Sin plan activo"}{" "}
               {currentCycle
@@ -541,6 +582,14 @@ export default async function ClienteMediaPage({
           </div>
         ) : null}
       </div>
+
+      <ContactosAdminPanel
+        clienteId={clienteId}
+        empresaNombre={empresaView.empresaNombre}
+        filaEmail={(cliente.email_contacto as string | null) ?? null}
+        filaTelefono={(cliente.telefono as string | null) ?? null}
+        initialContactos={initialContactos}
+      />
 
       <ClienteMediaTabs
         assets={assetsSection}

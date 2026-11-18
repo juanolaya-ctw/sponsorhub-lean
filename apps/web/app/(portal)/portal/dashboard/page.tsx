@@ -97,7 +97,7 @@ export default async function SponsorDashboardPage() {
     sponsor.ctMedia
       ? supabase
           .from("media_billing_cycles")
-          .select("id, creditos_asignados, creditos_rollover")
+          .select("id, creditos_asignados, creditos_extra, creditos_rollover")
           .eq("sponsor_id", sponsor.sponsorId)
           .order("periodo", { ascending: false })
           .limit(1)
