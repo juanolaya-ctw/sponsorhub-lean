@@ -11,7 +11,9 @@ import {
   validateEdicionCreditos,
 } from "@/lib/media/acuerdo";
 import {
+  checklistToText,
   normalizeInstruccionesInsumos,
+  parseChecklist,
   type InstruccionesInsumosInput,
 } from "@/lib/media/portal-cliente";
 
@@ -669,15 +671,20 @@ export async function createCatalogAsset(
   nombre: string,
   descripcion: string | null,
   costoCreditos: number,
+  insumosChecklist?: string | null,
 ): Promise<MediaActionState> {
   await requireAdmin();
   const admin = createAdminClient();
 
-  const { error } = await admin.from("media_assets_catalogo").insert({
+  const insert: Record<string, unknown> = {
     nombre,
     descripcion,
     costo_creditos: costoCreditos,
-  });
+  };
+  if (insumosChecklist !== undefined) {
+    insert.insumos_checklist = checklistToText(parseChecklist(insumosChecklist));
+  }
+  const { error } = await admin.from("media_assets_catalogo").insert(insert);
 
   if (error) return { error: error.message };
   revalidatePath("/admin/media/catalogo");
@@ -689,13 +696,22 @@ export async function updateCatalogAsset(
   nombre: string,
   descripcion: string | null,
   costoCreditos: number,
+  insumosChecklist?: string | null,
 ): Promise<MediaActionState> {
   await requireAdmin();
   const admin = createAdminClient();
 
+  const patch: Record<string, unknown> = {
+    nombre,
+    descripcion,
+    costo_creditos: costoCreditos,
+  };
+  if (insumosChecklist !== undefined) {
+    patch.insumos_checklist = checklistToText(parseChecklist(insumosChecklist));
+  }
   const { error } = await admin
     .from("media_assets_catalogo")
-    .update({ nombre, descripcion, costo_creditos: costoCreditos })
+    .update(patch)
     .eq("id", id);
 
   if (error) return { error: error.message };

@@ -8,6 +8,7 @@ import {
   estadoCliente,
   formatFechaCorta,
   formatUsdTarifa,
+  parseChecklist,
   piezaEjecutada,
   type AssetEstadoCliente,
   type ResumenSaldo,
@@ -360,7 +361,7 @@ function AssetInsumosCard({ asset }: { asset: ContactoMediaAsset }) {
         {hayInstrucciones ? (
           <div className="mt-1 space-y-1">
             {asset.instrucciones ? (
-              <p className="whitespace-pre-line">{asset.instrucciones}</p>
+              <InstruccionesList texto={asset.instrucciones} />
             ) : null}
             {asset.formato ? (
               <p>
@@ -456,5 +457,19 @@ function AssetInsumosCard({ asset }: { asset: ContactoMediaAsset }) {
         </p>
       ) : null}
     </div>
+  )
+}
+
+function InstruccionesList({ texto }: { texto: string }) {
+  const items = parseChecklist(texto)
+  if (items.length <= 1) {
+    return <p className="whitespace-pre-line">{items[0] ?? texto}</p>
+  }
+  return (
+    <ul className="list-disc space-y-0.5 pl-5">
+      {items.map((item, i) => (
+        <li key={i}>{item}</li>
+      ))}
+    </ul>
   )
 }

@@ -257,3 +257,47 @@ export function tieneInstrucciones(p: {
     cleanText(p.instrucciones) || cleanText(p.formato) || cleanText(p.fechaLimite),
   )
 }
+
+// ── Checklist de insumos (un ítem por línea) ─────────────────────────────────
+
+const BULLET = /^\s*(?:[-*•·]|\d+[.)]|\[\s?\])\s+/
+
+/** Convierte texto multilínea en ítems; quita viñetas y líneas vacías. */
+export function parseChecklist(text: string | null | undefined): string[] {
+  if (!text) return []
+  return String(text)
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((l) => l.replace(BULLET, "").trim())
+    .filter((l) => l.length > 0)
+}
+
+export function checklistToText(items: readonly string[]): string | null {
+  const clean = items.map((i) => i.trim()).filter(Boolean)
+  return clean.length > 0 ? clean.join("\n") : null
+}
+
+/**
+ * Instrucciones efectivas de una pieza: las propias si existen; si no, el
+ * checklist por defecto de su tipo de asset en el catálogo.
+ */
+export function instruccionesEfectivas(
+  pieza: string | null | undefined,
+  catalogo: string | null | undefined,
+): { texto: string | null; origen: "pieza" | "catalogo" | null } {
+  const propia = cleanText(pieza)
+  if (propia) return { texto: propia, origen: "pieza" }
+  const def = cleanText(catalogo)
+  if (def) return { texto: def, origen: "catalogo" }
+  return { texto: null, origen: null }
+}
+
+/** Normaliza un nombre de asset para comparar (sin tildes, signos ni mayúsculas). */
+export function normalizarNombreAsset(nombre: string): string {
+  return nombre
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+}

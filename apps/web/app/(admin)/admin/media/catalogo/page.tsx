@@ -6,6 +6,7 @@ export type CatalogAsset = {
   id: string;
   nombre: string;
   descripcion: string | null;
+  insumosChecklist: string | null;
   costoCreditos: number;
   activo: boolean;
 };
@@ -16,7 +17,7 @@ export default async function CatalogoMediaPage() {
 
   const { data, error } = await admin
     .from("media_assets_catalogo")
-    .select("id, nombre, descripcion, costo_creditos, activo")
+    .select("id, nombre, descripcion, costo_creditos, activo, insumos_checklist")
     .order("nombre");
 
   if (error) throw new Error(error.message);
@@ -25,6 +26,7 @@ export default async function CatalogoMediaPage() {
     id: a.id as string,
     nombre: a.nombre as string,
     descripcion: (a.descripcion as string | null) ?? null,
+    insumosChecklist: (a.insumos_checklist as string | null) ?? null,
     costoCreditos: a.costo_creditos as number,
     activo: a.activo as boolean,
   }));

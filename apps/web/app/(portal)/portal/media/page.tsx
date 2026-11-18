@@ -5,6 +5,7 @@ import { getSponsorContext } from "@/lib/portal/sponsor"
 import { createAdminClient } from "@/lib/supabase/admin"
 import {
   formatPeriodoCiclo,
+  instruccionesEfectivas,
   numerarPiezas,
   resumenSaldo,
 } from "@/lib/media/portal-cliente"
@@ -116,11 +117,17 @@ async function PortalMediaContactoPage() {
     assetIds.length > 0
       ? await admin
           .from("media_assets_catalogo")
-          .select("id, nombre")
+          .select("id, nombre, insumos_checklist")
           .in("id", assetIds)
       : { data: [], error: null }
   const catalogMap = new Map(
     (catalogResult.data ?? []).map((a) => [a.id as string, a.nombre as string]),
+  )
+  const checklistMap = new Map(
+    (catalogResult.data ?? []).map((a) => [
+      a.id as string,
+      ((a as { insumos_checklist?: string | null }).insumos_checklist ?? null),
+    ]),
   )
 
   const insumosByAsset = new Map<
@@ -190,7 +197,10 @@ async function PortalMediaContactoPage() {
         clienteId,
         creadaEl: (a.created_at as string | null) ?? null,
         entregadaEl: (a.entregado_at as string | null) ?? null,
-        instrucciones: (a.insumos_notas as string | null) ?? null,
+        instrucciones: instruccionesEfectivas(
+          a.insumos_notas as string | null,
+          checklistMap.get(a.asset_id as string),
+        ).texto,
         formato: (a.insumos_formato as string | null) ?? null,
         fechaLimite: (a.insumos_fecha_limite as string | null) ?? null,
         insumos: insumosByAsset.get(a.id as string) ?? [],

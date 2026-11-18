@@ -26,7 +26,12 @@ import {
   InstruccionesInsumosFields,
 } from "./instrucciones-insumos-fields";
 
-type CatalogItem = { id: string; nombre: string; costoCreditos: number };
+type CatalogItem = {
+  id: string;
+  nombre: string;
+  costoCreditos: number;
+  insumosChecklist?: string | null;
+};
 
 export function ActivarAssetDialog({
   billingCycleId,
@@ -145,7 +150,18 @@ export function ActivarAssetDialog({
                     <button
                       key={a.id}
                       type="button"
-                      onClick={() => setAssetId(a.id)}
+                      onClick={() => {
+                        const prevDefault = selected?.insumosChecklist ?? "";
+                        setAssetId(a.id);
+                        // Precarga el checklist del tipo de asset si el admin
+                        // no ha escrito instrucciones propias.
+                        setInstrucciones((cur) =>
+                          cur.instrucciones.trim() === "" ||
+                          cur.instrucciones === prevDefault
+                            ? { ...cur, instrucciones: a.insumosChecklist ?? "" }
+                            : cur,
+                        );
+                      }}
                       className={
                         active
                           ? "flex w-full items-center justify-between gap-2 bg-muted px-3 py-2 text-left text-sm font-medium"
@@ -171,7 +187,8 @@ export function ActivarAssetDialog({
           {selected ? (
             <details className="rounded-lg border border-border px-3 py-2">
               <summary className="cursor-pointer text-sm font-medium">
-                Instrucciones de insumos para el cliente (opcional)
+                Insumos que pedirás al cliente
+                {selected.insumosChecklist ? " (precargados del catálogo)" : " (opcional)"}
               </summary>
               <div className="mt-3">
                 <InstruccionesInsumosFields

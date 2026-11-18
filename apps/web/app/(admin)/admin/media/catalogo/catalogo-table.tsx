@@ -50,6 +50,7 @@ function AssetForm({
 }) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
   const [descripcion, setDescripcion] = useState(initial?.descripcion ?? "");
+  const [checklist, setChecklist] = useState(initial?.insumosChecklist ?? "");
   const [costo, setCosto] = useState(String(initial?.costoCreditos ?? ""));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -60,8 +61,8 @@ function AssetForm({
     if (!costo || isNaN(costoNum) || costoNum <= 0) { setError("El costo debe ser un número positivo."); return; }
     startTransition(async () => {
       const result = initial
-        ? await updateCatalogAsset(initial.id, nombre.trim(), descripcion.trim() || null, costoNum)
-        : await createCatalogAsset(nombre.trim(), descripcion.trim() || null, costoNum);
+        ? await updateCatalogAsset(initial.id, nombre.trim(), descripcion.trim() || null, costoNum, checklist)
+        : await createCatalogAsset(nombre.trim(), descripcion.trim() || null, costoNum, checklist);
       if (result.error) { setError(result.error); } else { onSuccess(); }
     });
   }
@@ -75,6 +76,11 @@ function AssetForm({
       <div>
         <Label htmlFor="asset-descripcion">Descripción</Label>
         <Textarea id="asset-descripcion" value={descripcion ?? ""} onChange={(e) => setDescripcion(e.target.value)} className="mt-1" rows={2} />
+      </div>
+      <div>
+        <Label htmlFor="asset-checklist">Insumos que debe entregar el cliente</Label>
+        <Textarea id="asset-checklist" value={checklist} onChange={(e) => setChecklist(e.target.value)} className="mt-1" rows={6} placeholder={"Un insumo por línea, ej.:\nLogo Original (png)\nManual Marca\nCTA: 2-3 palabras"} />
+        <p className="mt-1 text-xs text-muted-foreground">Checklist por defecto para cada pieza de este tipo. Se puede ajustar en cada pieza desde la ficha del cliente.</p>
       </div>
       <div>
         <Label htmlFor="asset-costo">Costo (créditos)</Label>
@@ -100,7 +106,7 @@ function CreateAssetDialog() {
       <DialogTrigger asChild>
         <Button type="button">+ Nuevo asset</Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader><DialogTitle>Nuevo asset</DialogTitle></DialogHeader>
         <AssetForm key={key} onSuccess={handleSuccess} />
       </DialogContent>
@@ -118,7 +124,7 @@ function EditAssetDialog({ asset }: { asset: CatalogAsset }) {
       <DialogTrigger asChild>
         <Button type="button" size="sm" variant="outline">Editar</Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader><DialogTitle>Editar asset</DialogTitle></DialogHeader>
         <AssetForm key={key} initial={asset} onSuccess={handleSuccess} />
       </DialogContent>
@@ -204,6 +210,7 @@ export function CatalogoTable({ assets }: { assets: CatalogAsset[] }) {
               <TableRow>
                 <TableHead>Nombre</TableHead>
                 <TableHead>Descripción</TableHead>
+                <TableHead>Insumos</TableHead>
                 <TableHead>Costo (cr.)</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead />
@@ -214,6 +221,7 @@ export function CatalogoTable({ assets }: { assets: CatalogAsset[] }) {
                 <TableRow key={asset.id}>
                   <TableCell className="font-medium">{asset.nombre}</TableCell>
                   <TableCell className="text-muted-foreground">{asset.descripcion ?? "—"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{asset.insumosChecklist ? `${asset.insumosChecklist.split("\n").filter(Boolean).length} ítems` : "Sin definir"}</TableCell>
                   <TableCell>{asset.costoCreditos}</TableCell>
                   <TableCell>
                     <Badge variant={asset.activo ? "secondary" : "outline"}>

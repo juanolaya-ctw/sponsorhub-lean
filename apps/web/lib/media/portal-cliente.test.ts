@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 import {
+  checklistToText,
   estadoCliente,
+  instruccionesEfectivas,
+  normalizarNombreAsset,
+  parseChecklist,
   formatFechaCorta,
   formatPeriodoCiclo,
   formatUsdTarifa,
@@ -123,5 +127,28 @@ describe("estado y tarifa", () => {
     expect(formatUsdTarifa(null)).toBeNull()
     expect(formatUsdTarifa(0.95)).toBe("$0.95")
     expect(formatUsdTarifa(0.875)).toBe("$0.875")
+  })
+})
+
+describe("checklist de insumos", () => {
+  it("parsea líneas y quita viñetas", () => {
+    expect(parseChecklist("- Logo (png)\n\n• Manual Marca\r\n1. CTA: 2-3 palabras\n  ")).toEqual([
+      "Logo (png)",
+      "Manual Marca",
+      "CTA: 2-3 palabras",
+    ])
+    expect(parseChecklist(null)).toEqual([])
+    expect(checklistToText([" a ", "", "b"])).toBe("a\nb")
+    expect(checklistToText([])).toBeNull()
+  })
+  it("pieza sobrescribe catálogo", () => {
+    expect(instruccionesEfectivas("propia", "def")).toEqual({ texto: "propia", origen: "pieza" })
+    expect(instruccionesEfectivas("  ", "def")).toEqual({ texto: "def", origen: "catalogo" })
+    expect(instruccionesEfectivas(null, null)).toEqual({ texto: null, origen: null })
+  })
+  it("normaliza nombres", () => {
+    expect(normalizarNombreAsset("Cápsula de video: producción en estudio Colombia Tech")).toBe(
+      normalizarNombreAsset("Cápsula de video: producción en estudio colombia tech"),
+    )
   })
 })

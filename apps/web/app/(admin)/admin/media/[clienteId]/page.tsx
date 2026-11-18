@@ -91,7 +91,7 @@ export default async function ClienteMediaPage({
         .limit(24),
       admin
         .from("media_assets_catalogo")
-        .select("id, nombre, costo_creditos")
+        .select("id, nombre, costo_creditos, insumos_checklist")
         .eq("activo", true)
         .order("nombre"),
       admin
@@ -267,7 +267,11 @@ export default async function ClienteMediaPage({
     id: a.id as string,
     nombre: a.nombre as string,
     costoCreditos: a.costo_creditos as number,
+    insumosChecklist: (a.insumos_checklist as string | null) ?? null,
   }));
+  const checklistPorAsset = new Map(
+    catalog.map((a) => [a.id, a.insumosChecklist]),
+  );
 
   const planes = (planesResult.data ?? []).map((p) => ({
     id: p.id as string,
@@ -344,6 +348,8 @@ export default async function ClienteMediaPage({
                   fechaLimite: a.insumos_fecha_limite,
                 });
                 const fechaLimite = formatFechaCorta(a.insumos_fecha_limite);
+                const checklistDefecto =
+                  checklistPorAsset.get(a.asset_id) ?? null;
                 return (
                   <TableRow key={a.id}>
                     <TableCell className="font-medium">
@@ -354,7 +360,9 @@ export default async function ClienteMediaPage({
                       <p className="text-xs font-normal text-muted-foreground">
                         {insumosDefinidos
                           ? `Insumos definidos${fechaLimite ? ` · límite ${fechaLimite}` : ""}`
-                          : "Sin instrucciones de insumos"}
+                          : checklistDefecto
+                            ? "Insumos: checklist por defecto del catálogo"
+                            : "Sin instrucciones de insumos"}
                       </p>
                     </TableCell>
                     <TableCell>{a.costo_creditos} cr.</TableCell>
@@ -390,7 +398,8 @@ export default async function ClienteMediaPage({
                           clienteId={clienteId}
                           definidas={insumosDefinidos}
                           initial={{
-                            instrucciones: a.insumos_notas ?? "",
+                            instrucciones:
+                              a.insumos_notas ?? checklistDefecto ?? "",
                             formato: a.insumos_formato ?? "",
                             fechaLimite: a.insumos_fecha_limite ?? "",
                           }}
