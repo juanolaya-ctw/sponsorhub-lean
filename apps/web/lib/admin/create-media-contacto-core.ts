@@ -61,6 +61,10 @@ export type MediaContactoAdmin = {
         error: { message: string } | null
       }>
       deleteUser: (id: string) => Promise<{ error: { message: string } | null }>
+      updateUserById?: (
+        id: string,
+        attrs: { password: string },
+      ) => Promise<{ error: { message: string } | null }>
       getUserById: (id: string) => Promise<{
         data: { user: { id: string; email?: string | null } | null }
         error: { message: string } | null
@@ -100,7 +104,7 @@ export type CreateMediaContactoDeps = {
 }
 
 export const DEFAULT_MEDIA_ACCESS_LINK_EXPIRY_HINT =
-  "Un solo uso. Caduca según la configuración de Auth del proyecto (OTP / magic link)."
+  "Alternativa secundaria: un solo uso y caduca según la configuración OTP de Auth (hoy 1 hora). Los escáneres de correo pueden consumirlo antes de que el cliente lo abra; para el acceso normal usa email + contraseña."
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -333,34 +337,17 @@ export const runCreateOrLinkMediaContacto = async (
  * Server-only: no acepta email arbitrario ni roles distintos de media_contacto.
  * No envía correo; el action_link solo vuelve en la respuesta al admin.
  */
-export const runGenerateMediaContactoAccessLink = async (
-  deps: CreateMediaContactoDeps,
-  input: { clienteId: string; contactoId: string },
-): Promise<MediaContactoAccessState> => {
-  const auth = await deps.requireAdmin()
-  const forbidden = messageIfCannotCreateUsuario(auth.rol)
-  if (forbidden) return { error: forbidden }
-
-  const ready = deps.isReady ? deps.isReady() : MEDIA_EMPRESA_CONTACTOS_READY
-  if (!ready) {
-    return { error: "Flujo media_contacto no activado." }
-  }
-
-  const clienteId = input.clienteId.trim()
-  const contactoId = input.contactoId.trim()
-  if (!clienteId || !contactoId) {
-    return { error: "clienteId y contactoId son requeridos." }
-  }
-
-  const redirectTo = deps.getAccessLinkRedirectTo?.().trim() ?? ""
-  if (!redirectTo || !/^https?:\/\//i.test(redirectTo)) {
-    return {
-      error:
-        "No hay URL de retorno configurada para el enlace (origen del portal).",
-    }
-  }
-
-  const admin = deps.getAdmin()
+/**
+ * Resuelve un contacto Media ya vinculado (activo, rol media_contacto,
+ * email Auth coincidente). Base común de enlace y contraseña.
+ */
+const resolveLinkedMediaContacto = async (
+  admin: MediaContactoAdmin,
+  clienteId: string,
+  contactoId: string,
+): Promise<
+  { error: string; authUserId?: never; email?: never } | { error: null; authUserId: string; email: string }
+> => {
   const { data: contacto, error } = await admin
     .from("media_cliente_contactos")
     .select("id, auth_user_id, activo, email")
@@ -414,6 +401,41 @@ export const runGenerateMediaContactoAccessLink = async (
     }
   }
 
+  return { error: null, authUserId, email }
+}
+
+export const runGenerateMediaContactoAccessLink = async (
+  deps: CreateMediaContactoDeps,
+  input: { clienteId: string; contactoId: string },
+): Promise<MediaContactoAccessState> => {
+  const auth = await deps.requireAdmin()
+  const forbidden = messageIfCannotCreateUsuario(auth.rol)
+  if (forbidden) return { error: forbidden }
+
+  const ready = deps.isReady ? deps.isReady() : MEDIA_EMPRESA_CONTACTOS_READY
+  if (!ready) {
+    return { error: "Flujo media_contacto no activado." }
+  }
+
+  const clienteId = input.clienteId.trim()
+  const contactoId = input.contactoId.trim()
+  if (!clienteId || !contactoId) {
+    return { error: "clienteId y contactoId son requeridos." }
+  }
+
+  const redirectTo = deps.getAccessLinkRedirectTo?.().trim() ?? ""
+  if (!redirectTo || !/^https?:\/\//i.test(redirectTo)) {
+    return {
+      error:
+        "No hay URL de retorno configurada para el enlace (origen del portal).",
+    }
+  }
+
+  const admin = deps.getAdmin()
+  const resolved = await resolveLinkedMediaContacto(admin, clienteId, contactoId)
+  if (resolved.error !== null) return { error: resolved.error }
+  const { authUserId, email } = resolved
+
   const { data: linkData, error: linkError } =
     await admin.auth.admin.generateLink({
       type: "magiclink",
@@ -440,3 +462,50 @@ export const runGenerateMediaContactoAccessLink = async (
   }
 }
 
+
+/**
+ * Asigna (o restablece) la contraseña de un contacto Media ya vinculado.
+ * Solo admin; solo rol media_contacto; no toca email, rol ni vínculos.
+ * La contraseña solo vuelve en la respuesta (no se persiste en la app).
+ */
+export const runSetMediaContactoPassword = async (
+  deps: CreateMediaContactoDeps,
+  input: { clienteId: string; contactoId: string; password: string },
+): Promise<MediaContactoAccessState & { email?: string }> => {
+  const auth = await deps.requireAdmin()
+  const forbidden = messageIfCannotCreateUsuario(auth.rol)
+  if (forbidden) return { error: forbidden }
+
+  const ready = deps.isReady ? deps.isReady() : MEDIA_EMPRESA_CONTACTOS_READY
+  if (!ready) return { error: "Flujo media_contacto no activado." }
+
+  const clienteId = input.clienteId.trim()
+  const contactoId = input.contactoId.trim()
+  if (!clienteId || !contactoId) {
+    return { error: "clienteId y contactoId son requeridos." }
+  }
+  const password = input.password ?? ""
+  if (password.length < 8 || password.length > 72) {
+    return { error: "La contraseña debe tener entre 8 y 72 caracteres." }
+  }
+
+  const admin = deps.getAdmin()
+  const resolved = await resolveLinkedMediaContacto(admin, clienteId, contactoId)
+  if (resolved.error !== null) return { error: resolved.error }
+
+  if (!admin.auth.admin.updateUserById) {
+    return { error: "Auth admin no soporta actualizar usuarios." }
+  }
+  const { error } = await admin.auth.admin.updateUserById(resolved.authUserId, {
+    password,
+  })
+  if (error) return { error: error.message }
+
+  return {
+    error: null,
+    success: true,
+    userId: resolved.authUserId,
+    contactoId,
+    email: resolved.email,
+  }
+}

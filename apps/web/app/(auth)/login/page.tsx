@@ -19,6 +19,7 @@ import {
   type UserRole,
 } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/client";
+import { solicitarRestablecimientoPassword } from "./actions";
 
 const finishSignIn = async (
   supabase: ReturnType<typeof createClient>,
@@ -31,7 +32,7 @@ const finishSignIn = async (
     return { ok: false, message: NO_ACCESS_MESSAGE };
   }
 
-  if (rol === "sponsor") {
+  if (rol === "sponsor" || rol === "media_contacto") {
     const { data: profile } = await supabase
       .from("sponsor_usuarios")
       .select("activo")
@@ -53,6 +54,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [modoReset, setModoReset] = useState(false);
+  const [resetMensaje, setResetMensaje] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,6 +169,21 @@ export default function LoginPage() {
     router.refresh();
   }
 
+  async function handleReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setResetMensaje(null);
+    setLoading(true);
+    try {
+      const { mensaje } = await solicitarRestablecimientoPassword(email);
+      setResetMensaje(mensaje);
+    } catch {
+      setError("No pudimos enviar el correo. Intenta de nuevo en unos minutos.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const fieldClass =
     "w-full rounded-[21px] border-0 bg-white px-6 py-4 text-base font-semibold text-[#040402] outline-none placeholder:font-semibold placeholder:text-[#868686] focus-visible:ring-2 focus-visible:ring-[#040402]/20";
 
@@ -183,6 +201,63 @@ export default function LoginPage() {
               de tu participación.
             </h1>
 
+{modoReset ? (
+            <form className="mt-10 space-y-4" onSubmit={handleReset}>
+              <p className="text-base font-semibold text-[#040402]">
+                Escribe tu correo y te enviamos un enlace para crear una
+                contraseña nueva.
+              </p>
+              <input
+                id="reset-email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className={fieldClass}
+                placeholder="Correo electrónico"
+                aria-label="Correo electrónico"
+              />
+
+              {error ? (
+                <p
+                  role="alert"
+                  className="rounded-[21px] bg-destructive/10 px-6 py-4 text-sm font-semibold text-destructive"
+                >
+                  {error}
+                </p>
+              ) : null}
+              {resetMensaje ? (
+                <p
+                  role="status"
+                  className="rounded-[21px] bg-white px-6 py-4 text-sm font-semibold text-[#040402]"
+                >
+                  {resetMensaje}
+                </p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-[21px] bg-[#040402] px-6 py-4 text-base font-semibold text-white transition hover:bg-[#040402]/90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Enviando…" : "Enviarme el enlace"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setModoReset(false);
+                  setError(null);
+                  setResetMensaje(null);
+                }}
+                className="w-full text-center text-sm font-semibold text-[#040402] underline underline-offset-4 hover:opacity-80"
+              >
+                Volver a iniciar sesión
+              </button>
+            </form>
+            ) : (
             <form className="mt-10 space-y-4" onSubmit={handleSubmit}>
               <input
                 id="email"
@@ -226,7 +301,20 @@ export default function LoginPage() {
               >
                 {loading ? "Ingresando…" : "Iniciar sesión"}
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setModoReset(true);
+                  setError(null);
+                  setResetMensaje(null);
+                }}
+                className="w-full text-center text-sm font-semibold text-[#040402] underline underline-offset-4 hover:opacity-80"
+              >
+                ¿Olvidaste tu contraseña?
+              </button>
             </form>
+            )}
           </div>
         </div>
 

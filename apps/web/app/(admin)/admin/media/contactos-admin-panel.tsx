@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ContactosFields } from "./contactos-fields"
+import { generarPasswordSegura } from "@/lib/auth/password"
 import {
+  asignarPasswordMediaContacto,
   crearAccesoMediaContacto,
   desvincularAccesoContacto,
   generarEnlaceAccesoMediaContacto,
@@ -47,6 +49,12 @@ export function ContactosAdminPanel({
   const [accessLink, setAccessLink] = useState<string | null>(null)
   const [accessLinkHint, setAccessLinkHint] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [credenciales, setCredenciales] = useState<{
+    email: string
+    password: string
+  } | null>(null)
+  const [credCopied, setCredCopied] = useState(false)
   const [pending, startTransition] = useTransition()
 
   const handleSave = () => {
@@ -88,8 +96,10 @@ export function ContactosAdminPanel({
         return
       }
       setSuccess(
-        "Usuario media_contacto creado y vinculado. Sin correo automático.",
+        "Usuario media_contacto creado y vinculado. Comparte las credenciales por el canal que elijas (no se envía correo).",
       )
+      setCredenciales({ email: email.trim().toLowerCase(), password })
+      setCredCopied(false)
       setPassword("")
       setPasswordConfirm("")
     })
@@ -114,6 +124,56 @@ export function ContactosAdminPanel({
       }
       setSuccess("Acceso vinculado por email exacto. Sin correo automático.")
     })
+  }
+
+  const handleGenerarPassword = () => {
+    const generated = generarPasswordSegura()
+    setPassword(generated)
+    setPasswordConfirm(generated)
+    setShowPassword(true)
+  }
+
+  const handleAsignarPassword = () => {
+    setError(null)
+    setSuccess(null)
+    setCredCopied(false)
+    if (!linkContactoId) {
+      setError("Selecciona un contacto con acceso vinculado.")
+      return
+    }
+    startTransition(async () => {
+      const result = await asignarPasswordMediaContacto({
+        clienteId,
+        contactoId: linkContactoId,
+      })
+      if (result.error || !result.generatedPassword || !result.accessEmail) {
+        setError(result.error ?? "No se pudo asignar la contraseña.")
+        setCredenciales(null)
+        return
+      }
+      setCredenciales({
+        email: result.accessEmail,
+        password: result.generatedPassword,
+      })
+      setSuccess(
+        "Contraseña nueva asignada. La anterior deja de funcionar. Cópiala ahora; se retira al cerrar.",
+      )
+    })
+  }
+
+  const loginUrl =
+    typeof window !== "undefined" ? `${window.location.origin}/login` : "/login"
+
+  const handleCopyCredenciales = async () => {
+    if (!credenciales) return
+    try {
+      await navigator.clipboard.writeText(
+        `Entra al Hub: ${loginUrl}\nCorreo: ${credenciales.email}\nContraseña: ${credenciales.password}`,
+      )
+      setCredCopied(true)
+    } catch {
+      setError("No se pudo copiar. Selecciona los datos manualmente.")
+    }
   }
 
   const handleGenerarEnlace = () => {
@@ -207,9 +267,10 @@ export function ContactosAdminPanel({
         <div className="space-y-3 border-t border-border pt-4">
           <h3 className="text-sm font-medium">Acceso portal del contacto</h3>
           <p className="text-xs text-muted-foreground">
-            Crear usuario nuevo (rol media_contacto) o vincular uno existente por
-            email exacto. El enlace de acceso se genera aparte, sin correo
-            automático.
+            El acceso normal es con correo + contraseña en {"/login"}. Crea el
+            usuario con una contraseña (usa «Generar») o, si el contacto ya está
+            vinculado, asígnale una nueva. Nada envía correo automático. El
+            enlace de un solo uso es solo una alternativa.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
@@ -244,11 +305,20 @@ export function ContactosAdminPanel({
               />
             </div>
             <div>
-              <Label htmlFor="acceso-password">Contraseña (solo crear)</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="acceso-password">Contraseña (al crear)</Label>
+                <button
+                  type="button"
+                  className="text-xs font-medium underline underline-offset-2"
+                  onClick={handleGenerarPassword}
+                >
+                  Generar
+                </button>
+              </div>
               <Input
                 id="acceso-password"
-                type="password"
-                className="mt-1"
+                type={showPassword ? "text" : "password"}
+                className="mt-1 font-mono"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
@@ -259,7 +329,7 @@ export function ContactosAdminPanel({
               <Label htmlFor="acceso-password2">Confirmar contraseña</Label>
               <Input
                 id="acceso-password2"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 className="mt-1"
                 value={passwordConfirm}
                 onChange={(e) => setPasswordConfirm(e.target.value)}
@@ -289,11 +359,21 @@ export function ContactosAdminPanel({
             <Button
               type="button"
               variant="secondary"
+              onClick={handleAsignarPassword}
+              disabled={pending}
+              aria-label="Asignar contraseña nueva al contacto vinculado"
+            >
+              Asignar contraseña nueva
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
               onClick={handleGenerarEnlace}
               disabled={pending}
-              aria-label="Generar enlace de acceso"
+              aria-label="Generar enlace de acceso de un solo uso (alternativa)"
             >
-              Generar enlace de acceso
+              Enlace de un solo uso (alternativa)
             </Button>
             {contactos
               .filter((c) => c.id && c.authUserId)
@@ -311,6 +391,46 @@ export function ContactosAdminPanel({
                 </Button>
               ))}
           </div>
+
+          {credenciales ? (
+            <div
+              className="space-y-2 rounded-lg border border-border bg-muted/30 p-3"
+              role="status"
+              aria-label="Credenciales de acceso"
+            >
+              <p className="text-sm font-medium">Credenciales de acceso</p>
+              <p className="text-xs text-muted-foreground">
+                Entra en {loginUrl}. Se muestran una sola vez; compártelas por un
+                canal privado. El contacto puede cambiarla luego con «¿Olvidaste tu
+                contraseña?».
+              </p>
+              <Input readOnly value={credenciales.email} aria-label="Correo" />
+              <Input
+                readOnly
+                value={credenciales.password}
+                className="font-mono"
+                aria-label="Contraseña"
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" onClick={() => void handleCopyCredenciales()}>
+                  {credCopied ? "Copiado" : "Copiar acceso"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setCredenciales(null)
+                    setCredCopied(false)
+                    setSuccess(null)
+                  }}
+                >
+                  Cerrar
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           {accessLink ? (
             <div

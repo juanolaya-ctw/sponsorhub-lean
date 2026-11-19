@@ -6,6 +6,7 @@ import {
   DEFAULT_MEDIA_ACCESS_LINK_EXPIRY_HINT,
   runCreateOrLinkMediaContacto,
   runGenerateMediaContactoAccessLink,
+  runSetMediaContactoPassword,
   type MediaContactoAccessState,
 } from "@/lib/admin/create-media-contacto-core"
 import {
@@ -16,6 +17,7 @@ import {
 } from "@/lib/media/empresa-contactos"
 import { MEDIA_EMPRESA_CONTACTOS_READY } from "@/lib/media/media-contacto-auth"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { generarPasswordSegura } from "@/lib/auth/password"
 
 export type ContactosActionState = {
   error: string | null
@@ -24,6 +26,9 @@ export type ContactosActionState = {
   /** Solo en memoria para el admin que generó el enlace; no persistir. */
   accessLink?: string
   accessLinkExpiryHint?: string
+  /** Solo en memoria para el admin; se muestra una vez y no se persiste. */
+  generatedPassword?: string
+  accessEmail?: string
 }
 
 const resolveAccessLinkRedirectTo = (): string => {
@@ -210,6 +215,32 @@ export async function generarEnlaceAccesoMediaContacto(input: {
     input,
   )
   return toActionState(result)
+}
+
+/**
+ * Asigna una contraseña nueva (generada en servidor si no se envía) a un
+ * contacto Media ya vinculado. Flujo principal de acceso: email + contraseña.
+ * No envía correo; la contraseña vuelve una sola vez al admin.
+ */
+export async function asignarPasswordMediaContacto(input: {
+  clienteId: string
+  contactoId: string
+  password?: string
+}): Promise<ContactosActionState> {
+  const password = input.password?.trim() ? input.password : generarPasswordSegura()
+  const result = await runSetMediaContactoPassword(mediaContactoDeps(), {
+    clienteId: input.clienteId,
+    contactoId: input.contactoId,
+    password,
+  })
+  if (result.error) return { error: result.error }
+  return {
+    error: null,
+    success: true,
+    userId: result.userId,
+    generatedPassword: password,
+    accessEmail: result.email,
+  }
 }
 
 export async function desvincularAccesoContacto(

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   runCreateOrLinkMediaContacto,
   runGenerateMediaContactoAccessLink,
+  runSetMediaContactoPassword,
   type MediaContactoAdmin,
 } from "./create-media-contacto-core"
 
@@ -17,6 +18,7 @@ const makeAdmin = (opts: {
 }) => {
   const createdUsers: string[] = []
   const deletedUsers: string[] = []
+  const passwordUpdates: { id: string; length: number }[] = []
   const contactosStore = new Map<string, Row>()
   if (opts.contacto) {
     contactosStore.set(String(opts.contacto.id), { ...opts.contacto })
@@ -148,6 +150,10 @@ const makeAdmin = (opts: {
           data: { users: opts.authUsers ?? [] },
           error: null,
         }),
+        updateUserById: async (id, attrs) => {
+          passwordUpdates.push({ id, length: attrs.password.length })
+          return { error: null }
+        },
         generateLink: async ({ email }) => ({
           data: {
             properties: {
@@ -161,7 +167,7 @@ const makeAdmin = (opts: {
     },
   }
 
-  return { admin, createdUsers, deletedUsers, contactosStore }
+  return { admin, createdUsers, deletedUsers, contactosStore, passwordUpdates }
 }
 
 describe("runCreateOrLinkMediaContacto (mocks; sin Auth real)", () => {
@@ -575,5 +581,86 @@ describe("generar enlace de acceso Media", () => {
     )
     expect(result.error).toMatch(/no encontrado/i)
     expect(result.accessLink).toBeUndefined()
+  })
+})
+
+describe("asignar contraseña a contacto Media vinculado", () => {
+  const deps = (admin: MediaContactoAdmin, rol = "admin_ct") => ({
+    requireAdmin: async () => ({ rol }),
+    getAdmin: () => admin,
+    isReady: () => true,
+    revalidate: () => undefined,
+  })
+  const linked = (rol = "media_contacto", activo = true) =>
+    makeAdmin({
+      contacto: {
+        id: "c1",
+        cliente_id: "emp-a",
+        activo: true,
+        auth_user_id: "u1",
+        email: "ana@acme.com",
+      },
+      profileById: { u1: { id: "u1", rol, activo } },
+      authUsers: [{ id: "u1", email: "ana@acme.com" }],
+    })
+
+  it("actualiza solo la contraseña del usuario vinculado", async () => {
+    const { admin, passwordUpdates, createdUsers, deletedUsers } = linked()
+    const result = await runSetMediaContactoPassword(deps(admin), {
+      clienteId: "emp-a",
+      contactoId: "c1",
+      password: "Abcdefgh12345!",
+    })
+    expect(result.error).toBeNull()
+    expect(result.email).toBe("ana@acme.com")
+    expect(passwordUpdates).toEqual([{ id: "u1", length: 14 }])
+    expect(createdUsers).toHaveLength(0)
+    expect(deletedUsers).toHaveLength(0)
+  })
+
+  it("rechaza roles distintos de media_contacto", async () => {
+    const { admin, passwordUpdates } = linked("sponsor")
+    const result = await runSetMediaContactoPassword(deps(admin), {
+      clienteId: "emp-a",
+      contactoId: "c1",
+      password: "Abcdefgh12345!",
+    })
+    expect(result.error).toBeTruthy()
+    expect(passwordUpdates).toHaveLength(0)
+  })
+
+  it("rechaza usuario desactivado, contraseña corta y no-admin", async () => {
+    const off = linked("media_contacto", false)
+    expect(
+      (await runSetMediaContactoPassword(deps(off.admin), {
+        clienteId: "emp-a",
+        contactoId: "c1",
+        password: "Abcdefgh12345!",
+      })).error,
+    ).toBeTruthy()
+    const ok = linked()
+    expect(
+      (await runSetMediaContactoPassword(deps(ok.admin), {
+        clienteId: "emp-a",
+        contactoId: "c1",
+        password: "corta",
+      })).error,
+    ).toBeTruthy()
+    expect(
+      (await runSetMediaContactoPassword(deps(ok.admin, "sponsor"), {
+        clienteId: "emp-a",
+        contactoId: "c1",
+        password: "Abcdefgh12345!",
+      })).error,
+    ).toBeTruthy()
+    expect(
+      (await runSetMediaContactoPassword(deps(ok.admin), {
+        clienteId: "otra",
+        contactoId: "c1",
+        password: "Abcdefgh12345!",
+      })).error,
+    ).toBeTruthy()
+    expect(off.passwordUpdates).toHaveLength(0)
+    expect(ok.passwordUpdates).toHaveLength(0)
   })
 })
